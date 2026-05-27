@@ -1,0 +1,18 @@
+# PyInstaller build & distribution output
+dist/
+dist2/
+build/
+
+# Compiled distribution zip (use GitHub Releases instead)
+KSEI_Dashboard.zip
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+env/
