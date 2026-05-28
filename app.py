@@ -229,24 +229,19 @@ with tab_saham:
 
     st.markdown(f"**{len(stock_meta):,} emiten**")
 
-    for _, sm in stock_meta.iterrows():
-        code   = sm["share_code"]
-        name   = sm["issuer_name"]
-        n_h    = int(sm["n_holders"])
-        t_pct  = sm["total_pct"]
-        n_loc  = int(sm["n_local"])
-        n_for  = int(sm["n_foreign"])
+    disp_meta = stock_meta[["share_code", "issuer_name", "n_holders", "total_pct", "n_local", "n_foreign"]].copy()
+    disp_meta.columns = ["Kode", "Emiten", "Holders", "% Tracked", "Lokal", "Asing"]
+    disp_meta["% Tracked"] = disp_meta["% Tracked"].apply(lambda x: f"{x:.2f}%")
+    st.dataframe(disp_meta, use_container_width=True, hide_index=True)
 
-        title = (
-            f"`{code}` &nbsp; **{name}** &nbsp;·&nbsp; "
-            f"{t_pct:.2f}% tracked &nbsp;·&nbsp; "
-            f"{n_h} holders ({n_loc}L / {n_for}F)"
+    if not stock_meta.empty:
+        detail_code = st.selectbox(
+            "🔍 Detail pemegang saham:",
+            ["— pilih emiten —"] + stock_meta["share_code"].tolist(),
+            key="detail_code",
         )
-
-        with st.expander(title):
-            sub = df[df["share_code"] == code].copy()
-
-            # Apply tab-level filters inside expander
+        if detail_code != "— pilih emiten —":
+            sub = df[df["share_code"] == detail_code].copy()
             if lf == "Lokal":
                 sub = sub[sub["local_foreign"] == "L"]
             elif lf == "Asing":
@@ -301,19 +296,19 @@ with tab_investor:
 
     st.markdown(f"**{len(inv_sum):,} investors**")
 
-    for _, ir in inv_sum.iterrows():
-        inv_name  = ir["investor_name"]
-        n_stocks  = int(ir["n_stocks"])
-        inv_type  = ir["investor_classification"] or "—"
-        lf_val    = ir["local_foreign"]
-        domicile  = ir["domicile"] or "—"
-        lf_tag    = "🇮🇩 Lokal" if lf_val == "L" else f"🌍 Asing · {domicile}"
+    disp_inv = inv_sum[["investor_name", "investor_classification", "local_foreign", "domicile", "n_stocks"]].copy()
+    disp_inv.columns = ["Investor", "Tipe", "L/F", "Domisil", "# Saham"]
+    st.dataframe(disp_inv, use_container_width=True, hide_index=True)
 
-        title = f"**{inv_name}** &nbsp;·&nbsp; {n_stocks} saham &nbsp;·&nbsp; {inv_type} &nbsp;·&nbsp; {lf_tag}"
-
-        with st.expander(title):
+    if not inv_sum.empty:
+        detail_inv = st.selectbox(
+            "🔍 Detail portofolio investor:",
+            ["— pilih investor —"] + inv_sum["investor_name"].tolist(),
+            key="detail_inv",
+        )
+        if detail_inv != "— pilih investor —":
             holdings = (
-                df[df["investor_name"] == inv_name][
+                df[df["investor_name"] == detail_inv][
                     ["share_code", "issuer_name", "total_holding_shares", "percentage"]
                 ]
                 .sort_values("percentage", ascending=False)
@@ -335,7 +330,7 @@ with tab_kongsi:
     )
 
     kc1, kc2, _ = st.columns([2, 2, 4])
-    min_pct    = kc1.slider("Min kepemilikan (%)", 1.0, 20.0, 5.0, 0.5, key="kp")
+    min_pct    = kc1.slider("Min kepemilikan (%)", 1.0, 20.0, 1.0, 0.5, key="kp")
     min_stocks = kc2.slider("Min jumlah saham", 2, 10, 2, 1, key="ks")
 
     groups = find_kongsi_groups(df, min_pct=min_pct, min_stocks=min_stocks)
