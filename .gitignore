@@ -16,3 +16,6 @@ __pycache__/
 venv/
 .env/
 env/
+
+# Database — contains personal investment data, keep local only
+ksei.db
