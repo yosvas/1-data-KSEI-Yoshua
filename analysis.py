@@ -28,9 +28,11 @@ def compute_changelog(df_old: pd.DataFrame, df_new: pd.DataFrame) -> dict:
     new_stocks   = sorted(new_stocks_set - old_stocks)
     closed_stocks = sorted(old_stocks - new_stocks_set)
 
-    # Build (share_code, investor_name) → percentage mapping
+    # Build (share_code, investor_name) → percentage mapping.
+    # groupby deduplicates and sorts the index, avoiding both the
+    # "ambiguous Series truth value" error and the lexsort PerformanceWarning.
     def _key_pct(df):
-        return df.set_index(["share_code", "investor_name"])["percentage"]
+        return df.groupby(["share_code", "investor_name"])["percentage"].sum()
 
     old_kp = _key_pct(df_old)
     new_kp = _key_pct(df_new)
