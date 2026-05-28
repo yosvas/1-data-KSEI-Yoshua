@@ -10,7 +10,6 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-# Make sure local modules are importable even if cwd differs
 sys.path.insert(0, str(Path(__file__).parent))
 
 from analysis import compute_changelog, find_kongsi_groups, get_metrics
@@ -33,47 +32,187 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
-st.markdown(
-    """
+# ── Design system CSS ─────────────────────────────────────────────────────────
+st.markdown("""
 <style>
-/* ── General ── */
-.block-container { padding-top: 1.2rem; }
+/* === Base ================================================================ */
+html, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+}
+.main .block-container {
+    padding-top: 0.75rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    max-width: 100%;
+}
+#MainMenu, footer, header { visibility: hidden; }
 
-/* ── KPI cards ── */
-[data-testid="metric-container"] {
-    background: #f8f9fa;
-    border-radius: 10px;
-    padding: 12px 16px;
-    border: 1px solid #e9ecef;
+/* === Sidebar ============================================================= */
+[data-testid="stSidebar"] {
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
 }
 
-/* ── Badges ── */
-.badge-local   { background:#d4edda; color:#155724; padding:2px 9px;
-                 border-radius:12px; font-size:.75rem; font-weight:600; }
-.badge-foreign { background:#cce5ff; color:#004085; padding:2px 9px;
-                 border-radius:12px; font-size:.75rem; font-weight:600; }
-.badge-type    { background:#e2e3e5; color:#383d41; padding:2px 9px;
-                 border-radius:12px; font-size:.75rem; }
+/* === Tabs ================================================================ */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent;
+    border-bottom: 2px solid #e2e8f0;
+    gap: 4px;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.6rem 1rem;
+    margin-bottom: -2px;
+    border-radius: 0;
+}
+.stTabs [aria-selected="true"] {
+    color: #0f172a;
+    border-bottom-color: #10b981;
+    font-weight: 600;
+}
+.stTabs [data-baseweb="tab"]:hover { color: #0f172a; }
 
-/* ── Ticker chip ── */
-.ticker { background:#212529; color:#fff; padding:2px 8px;
-          border-radius:5px; font-weight:700; font-size:.85rem; }
+/* === KPI metric cards ==================================================== */
+[data-testid="metric-container"] {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+[data-testid="metric-container"] > label {
+    color: #64748b !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+[data-testid="stMetricValue"] {
+    font-size: 1.6rem !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+}
 
-/* ── Changelog colours ── */
-.chg-new  { color:#28a745; font-weight:600; }
-.chg-exit { color:#dc3545; font-weight:600; }
-.chg-up   { color:#17a2b8; font-weight:600; }
-.chg-dn   { color:#fd7e14; font-weight:600; }
+/* === Expanders =========================================================== */
+[data-testid="stExpander"] {
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    margin-bottom: 5px !important;
+    overflow: hidden;
+}
+[data-testid="stExpander"] summary {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #0f172a;
+    padding: 0.65rem 1rem;
+}
+[data-testid="stExpander"] summary:hover { background: #f8fafc; }
 
-/* ── Section divider ── */
-.sec-hdr { font-size:1rem; font-weight:700; color:#343a40;
-           border-bottom:2px solid #dee2e6; padding-bottom:4px;
-           margin-top:8px; margin-bottom:8px; }
+/* === Dataframes ========================================================== */
+[data-testid="stDataFrame"] {
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    overflow: hidden;
+}
+
+/* === Inputs ============================================================== */
+[data-testid="stTextInput"] input {
+    border-radius: 8px;
+    border-color: #e2e8f0;
+    background: white;
+}
+
+/* === Badge system ======================================================== */
+.badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.bd-ticker {
+    background: #14532d;
+    color: #fff;
+    border-radius: 5px;
+    font-family: "SF Mono", "Consolas", monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    letter-spacing: 0.02em;
+}
+.bd-lokal      { background: #dcfce7; color: #15803d; }
+.bd-asing      { background: #dbeafe; color: #1d4ed8; }
+.bd-corporate  { background: #ede9fe; color: #6d28d9; }
+.bd-bank       { background: #d1fae5; color: #065f46; }
+.bd-individual { background: #fef9c3; color: #854d0e; }
+.bd-insurance  { background: #fee2e2; color: #b91c1c; }
+.bd-other      { background: #f1f5f9; color: #475569; }
+.bd-domicile   { background: #f8fafc; color: #94a3b8;
+                 border: 1px solid #e2e8f0; font-size: 0.65rem; }
+
+/* === Detail card header ================================================== */
+.det-hdr {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #10b981;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    line-height: 2.2;
+}
+.det-title { font-size: 1rem; font-weight: 700; color: #0f172a; margin: 0 8px; }
+.det-meta  { font-size: 0.8rem; color: #64748b; }
+
+/* === Section headers ===================================================== */
+.sec-hdr {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #94a3b8;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e2e8f0;
+    margin: 18px 0 10px 0;
+}
+
+/* === Changelog =========================================================== */
+.chg-new  { color: #15803d; font-weight: 600; }
+.chg-exit { color: #dc2626; font-weight: 600; }
+.chg-up   { color: #0ea5e9; font-weight: 600; }
+.chg-dn   { color: #f97316; font-weight: 600; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
+
+# ── Badge helpers ─────────────────────────────────────────────────────────────
+_TYPE_CLS = {
+    "Corporate":  "bd-corporate",
+    "Bank":       "bd-bank",
+    "Individual": "bd-individual",
+    "Insurance":  "bd-insurance",
+}
+
+def _b(cls: str, label: str) -> str:
+    return f'<span class="badge {cls}">{label}</span>'
+
+def b_ticker(code: str) -> str:
+    return f'<span class="badge bd-ticker">{code}</span>'
+
+def b_lf(lf: str) -> str:
+    return _b("bd-lokal", "🇮🇩 Lokal") if lf == "L" else _b("bd-asing", "🌍 Asing")
+
+def b_type(t: str) -> str:
+    return _b(_TYPE_CLS.get(t, "bd-other"), t or "Other")
+
+def b_dom(d: str) -> str:
+    return _b("bd-domicile", d) if d else ""
 
 # ── Init DB ───────────────────────────────────────────────────────────────────
 init_db()
@@ -92,7 +231,6 @@ with st.sidebar:
     st.markdown("## 📊 KSEI 1% Ownership")
     st.markdown("---")
 
-    # ── Upload ────────────────────────────────────────────────────────────────
     st.markdown("### 📁 Upload New Period")
     uploaded = st.file_uploader(
         "Upload KSEI PDF",
@@ -115,11 +253,11 @@ with st.sidebar:
 
         if df_parsed is not None:
             period_str   = df_parsed["date"].iloc[0].strftime("%Y-%m-%d")
-            period_label = df_parsed["date"].iloc[0].strftime("%d %b %Y")
+            period_label_up = df_parsed["date"].iloc[0].strftime("%d %b %Y")
             n_rows       = len(df_parsed)
 
             if period_exists(period_str):
-                st.warning(f"Period **{period_label}** is already in the database.")
+                st.warning(f"Period **{period_label_up}** is already in the database.")
                 col1, col2 = st.columns(2)
                 if col1.button("🔄 Replace", use_container_width=True):
                     delete_period(period_str)
@@ -132,12 +270,11 @@ with st.sidebar:
             else:
                 insert_holdings(df_parsed, uploaded.name)
                 _load.clear()
-                st.success(f"✅ **{period_label}** uploaded — {n_rows:,} rows")
+                st.success(f"✅ **{period_label_up}** uploaded — {n_rows:,} rows")
                 st.rerun()
 
     st.markdown("---")
 
-    # ── Period selector ───────────────────────────────────────────────────────
     periods = get_available_periods()
 
     if not periods:
@@ -152,7 +289,6 @@ with st.sidebar:
         index=len(periods) - 1,
     )
 
-    # ── Upload history ────────────────────────────────────────────────────────
     uploads_df = get_uploads()
     if not uploads_df.empty:
         st.markdown("---")
@@ -161,7 +297,7 @@ with st.sidebar:
             d = pd.to_datetime(row["period_date"]).strftime("%d %b %Y")
             st.markdown(
                 f"**{d}** · {int(row['row_count']):,} rows  \n"
-                f"<small style='color:#6c757d'>{row['filename']}</small>",
+                f"<small style='color:#94a3b8'>{row['filename']}</small>",
                 unsafe_allow_html=True,
             )
 
@@ -173,8 +309,10 @@ df = _load(selected)
 period_label = pd.to_datetime(selected).strftime("%d %b %Y")
 
 st.markdown(
-    f"## 📊 KSEI Ownership &nbsp;·&nbsp; "
-    f"<span style='color:#6c757d;font-size:1rem'>Period: {period_label}</span>",
+    f"<div style='padding:0.25rem 0 0.75rem 0; border-bottom:1px solid #e2e8f0; margin-bottom:0.75rem'>"
+    f"<span style='font-size:1.2rem;font-weight:700;color:#0f172a'>📊 KSEI Ownership</span>"
+    f"&nbsp;&nbsp;<span style='color:#94a3b8;font-size:0.875rem'>Period: {period_label}</span>"
+    f"</div>",
     unsafe_allow_html=True,
 )
 
@@ -196,21 +334,19 @@ tab_saham, tab_investor, tab_kongsi, tab_metrik, tab_changelog = tabs
 # TAB 1 — RINGKASAN SAHAM
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_saham:
-    # ── Filters ───────────────────────────────────────────────────────────────
     fc1, fc2, fc3, fc4 = st.columns([3, 1, 2, 1])
-    q = fc1.text_input("🔍 Cari kode saham atau nama emiten", placeholder="e.g. BBCA / BCA", key="qs")
-    lf = fc2.selectbox("L/F", ["Semua", "Lokal", "Asing"], key="lfs")
+    q        = fc1.text_input("🔍 Cari kode saham atau nama emiten", placeholder="e.g. BBCA / BCA", key="qs")
+    lf       = fc2.selectbox("L/F", ["Semua", "Lokal", "Asing"], key="lfs")
     inv_type = fc3.selectbox("Tipe Investor", all_types, key="its")
-    sort_by = fc4.selectbox("Urutkan", ["Kode", "# Holders ↓"], key="sbs")
+    sort_by  = fc4.selectbox("Urutkan", ["Kode", "# Holders ↓"], key="sbs")
 
-    # ── Build stock list ──────────────────────────────────────────────────────
     stock_meta = (
         df.groupby(["share_code", "issuer_name"])
         .agg(
-            n_holders   =("investor_name",  "count"),
-            total_pct   =("percentage",     "sum"),
-            n_local     =("local_foreign",  lambda x: (x == "L").sum()),
-            n_foreign   =("local_foreign",  lambda x: (x == "F").sum()),
+            n_holders =("investor_name",  "count"),
+            total_pct =("percentage",     "sum"),
+            n_local   =("local_foreign",  lambda x: (x == "L").sum()),
+            n_foreign =("local_foreign",  lambda x: (x == "F").sum()),
         )
         .reset_index()
     )
@@ -232,15 +368,31 @@ with tab_saham:
     disp_meta = stock_meta[["share_code", "issuer_name", "n_holders", "total_pct", "n_local", "n_foreign"]].copy()
     disp_meta.columns = ["Kode", "Emiten", "Holders", "% Tracked", "Lokal", "Asing"]
     disp_meta["% Tracked"] = disp_meta["% Tracked"].apply(lambda x: f"{x:.2f}%")
-    st.dataframe(disp_meta, use_container_width=True, hide_index=True)
+    st.dataframe(disp_meta, width="stretch", hide_index=True)
 
     if not stock_meta.empty:
         detail_code = st.selectbox(
-            "🔍 Detail pemegang saham:",
-            ["— pilih emiten —"] + stock_meta["share_code"].tolist(),
+            "Detail pemegang saham — pilih emiten:",
+            ["—"] + stock_meta["share_code"].tolist(),
             key="detail_code",
         )
-        if detail_code != "— pilih emiten —":
+        if detail_code != "—":
+            sm_row = stock_meta[stock_meta["share_code"] == detail_code]
+            if not sm_row.empty:
+                sm = sm_row.iloc[0]
+                n_loc, n_for = int(sm["n_local"]), int(sm["n_foreign"])
+                st.markdown(
+                    f'<div class="det-hdr">'
+                    f'{b_ticker(detail_code)}'
+                    f'<span class="det-title">{sm["issuer_name"]}</span>'
+                    f'<span class="det-meta">{int(sm["n_holders"])} holders &nbsp;·&nbsp; '
+                    f'<b>{sm["total_pct"]:.2f}%</b> tracked</span>'
+                    f'&nbsp;&nbsp;{_b("bd-lokal", f"{n_loc} Lokal")}'
+                    f'&nbsp;{_b("bd-asing", f"{n_for} Asing")}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
             sub = df[df["share_code"] == detail_code].copy()
             if lf == "Lokal":
                 sub = sub[sub["local_foreign"] == "L"]
@@ -257,10 +409,10 @@ with tab_saham:
                      "domicile", "total_holding_shares", "percentage"]
                 ].copy()
                 disp = disp.sort_values("percentage", ascending=False)
-                disp.columns = ["Investor", "Type", "L/F", "Domicile", "Shares", "%"]
-                disp["Shares"] = disp["Shares"].apply(lambda x: f"{int(x):,}")
-                disp["%"]      = disp["%"].apply(lambda x: f"{x:.2f}%")
-                st.dataframe(disp, use_container_width=True, hide_index=True)
+                disp.columns = ["Investor", "Tipe", "L/F", "Domisil", "Saham", "%"]
+                disp["Saham"] = disp["Saham"].apply(lambda x: f"{int(x):,}")
+                disp["%"]     = disp["%"].apply(lambda x: f"{x:.2f}%")
+                st.dataframe(disp, width="stretch", hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -268,12 +420,11 @@ with tab_saham:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_investor:
     fi1, fi2, fi3, fi4 = st.columns([3, 1, 2, 2])
-    qi   = fi1.text_input("🔍 Cari nama investor", placeholder="e.g. Garibaldi Thohir", key="qi")
-    lfi  = fi2.selectbox("L/F", ["Semua", "L", "F"], key="lfi")
-    iti  = fi3.selectbox("Tipe Investor", all_types, key="iti")
+    qi    = fi1.text_input("🔍 Cari nama investor", placeholder="e.g. Garibaldi Thohir", key="qi")
+    lfi   = fi2.selectbox("L/F", ["Semua", "L", "F"], key="lfi")
+    iti   = fi3.selectbox("Tipe Investor", all_types, key="iti")
     sorti = fi4.selectbox("Urutkan", ["# Saham ↓", "# Saham ↑", "Nama A-Z"], key="sorti")
 
-    # Build investor summary
     inv_sum = (
         df.groupby(["investor_name", "investor_classification", "local_foreign", "domicile"])
         .agg(n_stocks=("share_code", "nunique"))
@@ -298,15 +449,30 @@ with tab_investor:
 
     disp_inv = inv_sum[["investor_name", "investor_classification", "local_foreign", "domicile", "n_stocks"]].copy()
     disp_inv.columns = ["Investor", "Tipe", "L/F", "Domisil", "# Saham"]
-    st.dataframe(disp_inv, use_container_width=True, hide_index=True)
+    st.dataframe(disp_inv, width="stretch", hide_index=True)
 
     if not inv_sum.empty:
         detail_inv = st.selectbox(
-            "🔍 Detail portofolio investor:",
-            ["— pilih investor —"] + inv_sum["investor_name"].tolist(),
+            "Detail portofolio — pilih investor:",
+            ["—"] + inv_sum["investor_name"].tolist(),
             key="detail_inv",
         )
-        if detail_inv != "— pilih investor —":
+        if detail_inv != "—":
+            ir_row = inv_sum[inv_sum["investor_name"] == detail_inv]
+            if not ir_row.empty:
+                ir = ir_row.iloc[0]
+                dom_badge = f'&nbsp;{b_dom(ir["domicile"])}' if ir["local_foreign"] == "F" and ir["domicile"] else ""
+                st.markdown(
+                    f'<div class="det-hdr">'
+                    f'<span class="det-title">{detail_inv}</span>'
+                    f'&nbsp;{b_type(ir["investor_classification"])}'
+                    f'&nbsp;{b_lf(ir["local_foreign"])}'
+                    f'{dom_badge}'
+                    f'&nbsp;&nbsp;<span class="det-meta">{int(ir["n_stocks"])} saham</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
             holdings = (
                 df[df["investor_name"] == detail_inv][
                     ["share_code", "issuer_name", "total_holding_shares", "percentage"]
@@ -317,7 +483,7 @@ with tab_investor:
             holdings.columns = ["Kode", "Emiten", "Saham", "%"]
             holdings["Saham"] = holdings["Saham"].apply(lambda x: f"{int(x):,}")
             holdings["%"]     = holdings["%"].apply(lambda x: f"{x:.2f}%")
-            st.dataframe(holdings, use_container_width=True, hide_index=True)
+            st.dataframe(holdings, width="stretch", hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -348,6 +514,17 @@ with tab_kongsi:
                 codes += f" … +{n_s-8} lainnya"
 
             with st.expander(f"**{inv}** &nbsp;·&nbsp; {n_s} saham &nbsp;·&nbsp; `{codes}`"):
+                inv_detail = df[df["investor_name"] == inv]
+                if not inv_detail.empty:
+                    ir = inv_detail.iloc[0]
+                    dom_badge = f'&nbsp;{b_dom(ir["domicile"])}' if ir["local_foreign"] == "F" and ir["domicile"] else ""
+                    st.markdown(
+                        f'{b_type(ir["investor_classification"])}'
+                        f'&nbsp;{b_lf(ir["local_foreign"])}'
+                        f'{dom_badge}',
+                        unsafe_allow_html=True,
+                    )
+
                 rows = []
                 for s in g["stocks"]:
                     rows.append({
@@ -355,7 +532,7 @@ with tab_kongsi:
                         "Emiten": s["issuer_name"],
                         "%":      f"{s['percentage']:.2f}%",
                     })
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -364,18 +541,16 @@ with tab_kongsi:
 with tab_metrik:
     m = get_metrics(df)
 
-    # ── KPI row ───────────────────────────────────────────────────────────────
     k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Total Emiten",       f"{m['total_stocks']:,}")
-    k2.metric("Total Investor",     f"{m['total_investors']:,}")
-    k3.metric("Investor Lokal",     f"{m['local_investors']:,}")
-    k4.metric("Investor Asing",     f"{m['foreign_investors']:,}")
-    k5.metric("Rata-rata Holders",  f"{m['avg_holders']:.1f}")
-    k6.metric("Dominasi Lokal",     f"{m['local_pct_share']:.1f}%")
+    k1.metric("Total Emiten",      f"{m['total_stocks']:,}")
+    k2.metric("Total Investor",    f"{m['total_investors']:,}")
+    k3.metric("Investor Lokal",    f"{m['local_investors']:,}")
+    k4.metric("Investor Asing",    f"{m['foreign_investors']:,}")
+    k5.metric("Rata-rata Holders", f"{m['avg_holders']:.1f}")
+    k6.metric("Dominasi Lokal",    f"{m['local_pct_share']:.1f}%")
 
     st.markdown("---")
 
-    # ── Donut charts ──────────────────────────────────────────────────────────
     ca, cb = st.columns(2)
 
     with ca:
@@ -385,10 +560,10 @@ with tab_metrik:
             alt.Chart(lf_data)
             .mark_arc(innerRadius=55)
             .encode(
-                theta =alt.Theta("count:Q"),
-                color =alt.Color(
+                theta  =alt.Theta("count:Q"),
+                color  =alt.Color(
                     "label:N",
-                    scale=alt.Scale(domain=["Local","Foreign"], range=["#2ecc71","#3498db"]),
+                    scale=alt.Scale(domain=["Local","Foreign"], range=["#10b981","#3b82f6"]),
                     legend=alt.Legend(title=""),
                 ),
                 tooltip=["label:N", "count:Q"],
@@ -414,14 +589,13 @@ with tab_metrik:
 
     st.markdown("---")
 
-    # ── Bar charts ────────────────────────────────────────────────────────────
     cc, cd = st.columns(2)
 
     with cc:
         st.markdown("#### Top 20 Investor – Paling Banyak Saham")
         chart_top = (
             alt.Chart(m["top_investors_by_stocks"])
-            .mark_bar(color="#27ae60")
+            .mark_bar(color="#10b981")
             .encode(
                 x      =alt.X("n_stocks:Q", title="Jumlah Saham"),
                 y      =alt.Y("investor_name:N", sort="-x", title=""),
@@ -435,7 +609,7 @@ with tab_metrik:
         st.markdown("#### Top 20 Investor Asing – Paling Banyak Saham")
         chart_foreign = (
             alt.Chart(m["top_foreign"])
-            .mark_bar(color="#3498db")
+            .mark_bar(color="#3b82f6")
             .encode(
                 x      =alt.X("n_stocks:Q", title="Jumlah Saham"),
                 y      =alt.Y("investor_name:N", sort="-x", title=""),
@@ -453,7 +627,7 @@ with tab_metrik:
         st.markdown("#### Saham dengan Paling Banyak Tracked Shareholders")
         chart_holders = (
             alt.Chart(m["top_stocks_by_holders"])
-            .mark_bar(color="#e74c3c")
+            .mark_bar(color="#f43f5e")
             .encode(
                 x      =alt.X("n_holders:Q", title="Jumlah Holder"),
                 y      =alt.Y("share_code:N", sort="-x", title=""),
@@ -467,7 +641,7 @@ with tab_metrik:
         st.markdown("#### Negara Asal Investor Asing (Top 20)")
         chart_country = (
             alt.Chart(m["foreign_by_country"])
-            .mark_bar(color="#9b59b6")
+            .mark_bar(color="#8b5cf6")
             .encode(
                 x      =alt.X("count:Q", title="Jumlah Investor"),
                 y      =alt.Y("domicile:N", sort="-x", title=""),
@@ -488,7 +662,6 @@ with tab_changelog:
         st.info("Upload minimal **2 periode** untuk melihat perubahan antar periode.")
         st.stop()
 
-    # Period pickers
     cp1, cp2, _ = st.columns([2, 2, 4])
     p_from = cp1.selectbox(
         "Dari periode",
@@ -516,38 +689,39 @@ with tab_changelog:
     st.markdown(f"Perbandingan **{lbl_from}** → **{lbl_to}**")
     st.markdown("---")
 
-    # ── Summary metrics ───────────────────────────────────────────────────────
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Saham Baru",       len(chg["new_stocks"]))
-    m2.metric("Saham Ditutup",    len(chg["closed_stocks"]))
-    m3.metric("Saham Berubah",    len(chg["changed_stocks"]))
-    m4.metric("Pemegang Masuk",   f"+{len(chg['new_entries'])}", delta=f"+{len(chg['new_entries'])}")
-    m5.metric("Pemegang Keluar",  f"-{len(chg['exits'])}", delta=f"-{len(chg['exits'])}", delta_color="inverse")
+    m1.metric("Saham Baru",      len(chg["new_stocks"]))
+    m2.metric("Saham Ditutup",   len(chg["closed_stocks"]))
+    m3.metric("Saham Berubah",   len(chg["changed_stocks"]))
+    m4.metric("Pemegang Masuk",  f"+{len(chg['new_entries'])}", delta=f"+{len(chg['new_entries'])}")
+    m5.metric("Pemegang Keluar", f"-{len(chg['exits'])}", delta=f"-{len(chg['exits'])}", delta_color="inverse")
 
     st.markdown("---")
 
-    # ── New stocks ────────────────────────────────────────────────────────────
     if chg["new_stocks"]:
         st.markdown('<p class="sec-hdr">🆕 Saham Baru</p>', unsafe_allow_html=True)
         for code in chg["new_stocks"]:
             sub   = df_new[df_new["share_code"] == code]
             name  = sub["issuer_name"].iloc[0] if not sub.empty else ""
             n_inv = len(sub)
-            st.markdown(f"- `{code}` **{name}** — {n_inv} investor tercatat")
+            st.markdown(
+                f"&nbsp;{b_ticker(code)} &nbsp;**{name}** — {n_inv} investor tercatat",
+                unsafe_allow_html=True,
+            )
 
-    # ── Closed stocks ─────────────────────────────────────────────────────────
     if chg["closed_stocks"]:
         st.markdown('<p class="sec-hdr">❌ Saham Ditutup / Tidak Muncul</p>', unsafe_allow_html=True)
         for code in chg["closed_stocks"]:
             sub  = df_old[df_old["share_code"] == code]
             name = sub["issuer_name"].iloc[0] if not sub.empty else ""
-            st.markdown(f"- `{code}` **{name}**")
+            st.markdown(
+                f"&nbsp;{b_ticker(code)} &nbsp;**{name}**",
+                unsafe_allow_html=True,
+            )
 
-    # ── Per-stock changes ─────────────────────────────────────────────────────
     if chg["changed_stocks"]:
         st.markdown('<p class="sec-hdr">🔄 Perubahan Pemegang Saham per Emiten</p>', unsafe_allow_html=True)
 
-        # Pre-index for fast lookups
         new_entries_map: dict[str, list] = {}
         exits_map:       dict[str, list] = {}
         for sc, inv in chg["new_entries"]:
@@ -565,17 +739,21 @@ with tab_changelog:
             if not chg["pct_changes"].empty:
                 pct_sub = chg["pct_changes"][chg["pct_changes"]["share_code"] == code]
 
-            with st.expander(f"{code} — {issuer}  ·  +{len(entered)} masuk / -{len(exited)} keluar"):
+            with st.expander(
+                f"{b_ticker(code)} {issuer} &nbsp;·&nbsp; "
+                f'<span class="chg-new">+{len(entered)}</span> masuk / '
+                f'<span class="chg-exit">-{len(exited)}</span> keluar',
+            ):
                 if entered:
                     st.markdown("**🟢 Masuk (pemegang baru):**")
                     for inv in entered:
-                        row_inv = sub_new[sub_new["investor_name"] == inv]
-                        pct     = row_inv["percentage"].iloc[0] if not row_inv.empty else 0.0
-                        inv_type = row_inv["investor_classification"].iloc[0] if not row_inv.empty else ""
-                        lf_v    = row_inv["local_foreign"].iloc[0] if not row_inv.empty else ""
-                        lf_tag  = "Lokal" if lf_v == "L" else "Asing"
+                        row_inv  = sub_new[sub_new["investor_name"] == inv]
+                        pct      = row_inv["percentage"].iloc[0] if not row_inv.empty else 0.0
+                        inv_t    = row_inv["investor_classification"].iloc[0] if not row_inv.empty else ""
+                        lf_v     = row_inv["local_foreign"].iloc[0] if not row_inv.empty else ""
                         st.markdown(
-                            f"&nbsp;&nbsp;&nbsp;▶ **{inv}** · {inv_type} · {lf_tag} · `{pct:.2f}%`"
+                            f"&nbsp;&nbsp;▶ **{inv}** &nbsp;{b_type(inv_t)}&nbsp;{b_lf(lf_v)}&nbsp; `{pct:.2f}%`",
+                            unsafe_allow_html=True,
                         )
 
                 if exited:
@@ -583,9 +761,10 @@ with tab_changelog:
                     for inv in exited:
                         row_inv  = df_old[(df_old["share_code"] == code) & (df_old["investor_name"] == inv)]
                         pct      = row_inv["percentage"].iloc[0] if not row_inv.empty else 0.0
-                        inv_type = row_inv["investor_classification"].iloc[0] if not row_inv.empty else ""
+                        inv_t    = row_inv["investor_classification"].iloc[0] if not row_inv.empty else ""
                         st.markdown(
-                            f"&nbsp;&nbsp;&nbsp;◀ **{inv}** · {inv_type} · sebelumnya `{pct:.2f}%`"
+                            f"&nbsp;&nbsp;◀ **{inv}** &nbsp;{b_type(inv_t)}&nbsp; sebelumnya `{pct:.2f}%`",
+                            unsafe_allow_html=True,
                         )
 
                 if not pct_sub.empty:
@@ -597,7 +776,7 @@ with tab_changelog:
                     disp["Δ"] = disp["Δ"].apply(
                         lambda x: f"▲ {x:.2f}%" if x > 0 else f"▼ {abs(x):.2f}%"
                     )
-                    st.dataframe(disp, use_container_width=True, hide_index=True)
+                    st.dataframe(disp, width="stretch", hide_index=True)
 
     elif not chg["new_stocks"] and not chg["closed_stocks"]:
         st.success("✅ Tidak ada perubahan yang terdeteksi antara dua periode ini.")
