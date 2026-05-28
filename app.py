@@ -4,16 +4,20 @@ KSEI Ownership Dashboard
 Run:  streamlit run app.py   (from the 1persen_data folder)
 """
 import sys
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import altair as alt
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from analysis import compute_changelog, find_kongsi_groups, get_metrics
 from db import (
+    DB_PATH,
     delete_period,
     get_available_periods,
     get_uploads,
@@ -23,6 +27,8 @@ from db import (
     period_exists,
 )
 from parser import parse_ksei_pdf
+
+ANALYTICS_CACHE_VERSION = 2
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -39,10 +45,14 @@ st.markdown("""
 html, body, [class*="css"] {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
 }
+.stApp {
+    background: #f6f2ec;
+    color: #2f2a25;
+}
 .main .block-container {
-    padding-top: 0.75rem;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
+    padding-top: 0;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
     max-width: 100%;
 }
 #MainMenu, footer, header { visibility: hidden; }
@@ -55,38 +65,43 @@ html, body, [class*="css"] {
 
 /* === Tabs ================================================================ */
 .stTabs [data-baseweb="tab-list"] {
-    background: transparent;
-    border-bottom: 2px solid #e2e8f0;
-    gap: 4px;
+    background: #fbfaf8;
+    border-top: 1px solid #e8e0d8;
+    border-bottom: 1px solid #e8e0d8;
+    gap: 0;
+    display: flex;
+    width: 100%;
 }
 .stTabs [data-baseweb="tab"] {
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #64748b;
+    color: #a19386;
     font-size: 0.875rem;
-    font-weight: 500;
-    padding: 0.6rem 1rem;
+    font-weight: 650;
+    padding: 0.8rem 1rem;
     margin-bottom: -2px;
     border-radius: 0;
+    flex: 1 1 0;
+    justify-content: center;
 }
 .stTabs [aria-selected="true"] {
-    color: #0f172a;
-    border-bottom-color: #10b981;
+    color: #2f7f45;
+    border-bottom-color: #2f7f45;
     font-weight: 600;
 }
-.stTabs [data-baseweb="tab"]:hover { color: #0f172a; }
+.stTabs [data-baseweb="tab"]:hover { color: #2f7f45; }
 
 /* === KPI metric cards ==================================================== */
 [data-testid="metric-container"] {
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    background: #fffdf9;
+    border: 1px solid #e8e0d8;
+    border-radius: 4px;
     padding: 14px 18px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
 [data-testid="metric-container"] > label {
-    color: #64748b !important;
+    color: #a19386 !important;
     font-size: 0.7rem !important;
     font-weight: 600 !important;
     text-transform: uppercase;
@@ -95,27 +110,29 @@ html, body, [class*="css"] {
 [data-testid="stMetricValue"] {
     font-size: 1.6rem !important;
     font-weight: 700 !important;
-    color: #0f172a !important;
+    color: #2f7f45 !important;
 }
 
 /* === Expanders =========================================================== */
 [data-testid="stExpander"] {
-    border: 1px solid #e2e8f0 !important;
+    background: #fffdf9 !important;
+    border: 1px solid #e8e0d8 !important;
     border-radius: 8px !important;
-    margin-bottom: 5px !important;
+    margin-bottom: 10px !important;
     overflow: hidden;
+    box-shadow: 0 1px 3px rgba(44, 39, 34, 0.08);
 }
 [data-testid="stExpander"] summary {
     font-size: 0.875rem;
-    font-weight: 500;
-    color: #0f172a;
-    padding: 0.65rem 1rem;
+    font-weight: 750;
+    color: #2f2a25;
+    padding: 0.9rem 1rem;
 }
-[data-testid="stExpander"] summary:hover { background: #f8fafc; }
+[data-testid="stExpander"] summary:hover { background: #fbfaf8; }
 
 /* === Dataframes ========================================================== */
 [data-testid="stDataFrame"] {
-    border: 1px solid #e2e8f0 !important;
+    border: 1px solid #e8e0d8 !important;
     border-radius: 8px !important;
     overflow: hidden;
 }
@@ -123,8 +140,8 @@ html, body, [class*="css"] {
 /* === Inputs ============================================================== */
 [data-testid="stTextInput"] input {
     border-radius: 8px;
-    border-color: #e2e8f0;
-    background: white;
+    border-color: #e8e0d8;
+    background: #fffdf9;
 }
 
 /* === Badge system ======================================================== */
@@ -183,6 +200,188 @@ html, body, [class*="css"] {
     margin: 18px 0 10px 0;
 }
 
+/* === Reference header ==================================================== */
+.ref-topbar {
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    background: #fffdf9;
+    border-bottom: 1px solid #e8e0d8;
+    margin: 0 -0.75rem;
+}
+.ref-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #2f2a25;
+}
+.ref-market {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.ref-idx {
+    font-size: 1.05rem;
+    font-weight: 800;
+}
+.ref-dot {
+    color: #2f7f45;
+    font-weight: 900;
+}
+.ref-title {
+    color: #7c7064;
+    font-size: 1rem;
+}
+.ref-meta {
+    color: #a19386;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.ref-meta { text-align: right; }
+
+/* === Changelog =========================================================== */
+.chg-stock-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0 14px 0;
+    border-bottom: 1px solid #efe8df;
+    margin-bottom: 14px;
+}
+.chg-issuer {
+    color: #756a60;
+    font-weight: 700;
+    margin-left: 10px;
+}
+.chg-summary {
+    color: #a19386;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+.chg-empty {
+    color: #a19386;
+    font-size: 0.86rem;
+    padding: 4px 0 10px 0;
+}
+.chg-rename-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 14px;
+    align-items: start;
+    margin: 18px 0 8px 0;
+}
+.chg-rename-tile {
+    position: relative;
+}
+.chg-rename-tile > summary {
+    list-style: none;
+    background: #fffdf9;
+    border: 1px solid #e8e0d8;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(44, 39, 34, 0.1);
+    color: #2f2a25;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 750;
+    min-height: 44px;
+    padding: 0 12px;
+    user-select: none;
+    width: 100%;
+}
+.chg-rename-tile > summary::-webkit-details-marker {
+    display: none;
+}
+.chg-rename-tile > summary:hover,
+.chg-rename-tile[open] > summary {
+    border-color: #2f7f45;
+    color: #2f7f45;
+}
+.chg-popover {
+    background: #fffdf9;
+    border: 1px solid #d7cfc5;
+    border-left: 3px solid #2f7f45;
+    border-radius: 8px;
+    box-shadow: 0 14px 32px rgba(44, 39, 34, 0.18);
+    display: none;
+    left: 50%;
+    max-height: 380px;
+    overflow: auto;
+    padding: 12px;
+    position: fixed;
+    top: 220px;
+    transform: translateX(-50%);
+    width: min(760px, calc(100vw - 48px));
+    z-index: 1000;
+}
+.chg-rename-tile[open] .chg-popover {
+    display: block;
+}
+.chg-popover-close {
+    color: #a19386;
+    cursor: pointer;
+    font-size: 1.1rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-left: auto;
+    padding: 2px 7px;
+}
+.chg-popover-close:hover {
+    color: #2f2a25;
+}
+.chg-popover-title {
+    align-items: center;
+    border-bottom: 1px solid #efe8df;
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+}
+.chg-popover-count {
+    color: #a19386;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+.chg-rename-table {
+    border-collapse: collapse;
+    font-size: 0.76rem;
+    width: 100%;
+}
+.chg-rename-table th {
+    color: #a19386;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    padding: 7px 8px;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.chg-rename-table td {
+    border-top: 1px solid #efe8df;
+    color: #51483f;
+    padding: 8px;
+    vertical-align: top;
+}
+.chg-rename-table code {
+    color: #2f7f45;
+    font-weight: 750;
+    white-space: nowrap;
+}
+.chg-detail-card {
+    background: #fffdf9;
+    border: 1px solid #e8e0d8;
+    border-left: 3px solid #2f7f45;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin: 12px 0 4px 0;
+}
+
 /* === Changelog =========================================================== */
 .chg-new  { color: #15803d; font-weight: 600; }
 .chg-exit { color: #dc2626; font-weight: 600; }
@@ -206,13 +405,238 @@ def b_ticker(code: str) -> str:
     return f'<span class="badge bd-ticker">{code}</span>'
 
 def b_lf(lf: str) -> str:
-    return _b("bd-lokal", "🇮🇩 Lokal") if lf == "L" else _b("bd-asing", "🌍 Asing")
+    if lf == "L":
+        return _b("bd-lokal", "🇮🇩 Lokal")
+    if lf == "F":
+        return _b("bd-asing", "🌍 Asing")
+    return _b("bd-other", "Tidak Terklasifikasi")
 
 def b_type(t: str) -> str:
     return _b(_TYPE_CLS.get(t, "bd-other"), t or "Other")
 
 def b_dom(d: str) -> str:
     return _b("bd-domicile", d) if d else ""
+
+
+def donut_chart(data, label_col, value_col, colors=None, height=360):
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=data[label_col],
+                values=data[value_col],
+                hole=0.55,
+                sort=False,
+                direction="clockwise",
+                textinfo="percent",
+                textposition="outside",
+                texttemplate="%{percent:.1%}",
+                hovertemplate="%{label}<br>%{value:,}<br>%{percent:.1%}<extra></extra>",
+                marker=dict(colors=colors, line=dict(color="#f6f2ec", width=2)),
+            )
+        ]
+    )
+    fig.update_traces(automargin=True)
+    fig.update_layout(
+        height=height,
+        margin=dict(l=30, r=90, t=10, b=30),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(
+            orientation="v",
+            yanchor="middle",
+            y=0.5,
+            xanchor="left",
+            x=1.03,
+            font=dict(size=12),
+        ),
+        uniformtext_minsize=10,
+        uniformtext_mode="hide",
+    )
+    return fig
+
+
+def _lf_text(value):
+    if value == "L":
+        return "Lokal"
+    if value == "F":
+        return "Asing"
+    return "Tidak Terklasifikasi"
+
+
+def _data_dictionary():
+    return pd.DataFrame([
+        {"sheet": "ai_holdings", "column": "period_date", "description": "KSEI report period date."},
+        {"sheet": "ai_holdings", "column": "ticker", "description": "IDX stock ticker."},
+        {"sheet": "ai_holdings", "column": "issuer_name", "description": "Listed company / issuer name."},
+        {"sheet": "ai_holdings", "column": "investor_name", "description": "Shareholder name as reported by KSEI."},
+        {"sheet": "ai_holdings", "column": "investor_type", "description": "Investor classification, e.g. Corporate, Bank, Individual."},
+        {"sheet": "ai_holdings", "column": "local_foreign_label", "description": "Lokal, Asing, or Tidak Terklasifikasi."},
+        {"sheet": "ai_holdings", "column": "ownership_pct", "description": "Ownership percentage in percentage points, e.g. 5.25 means 5.25%."},
+        {"sheet": "ai_holdings", "column": "ownership_decimal", "description": "Ownership share as decimal, e.g. 0.0525 means 5.25%."},
+        {"sheet": "ai_holdings", "column": "rank_in_ticker", "description": "Ownership rank within the same ticker, highest percentage is 1."},
+        {"sheet": "stock_summary", "column": "tracked_ownership_pct", "description": "Sum of all tracked holders' ownership percentage for a ticker."},
+        {"sheet": "investor_summary", "column": "stock_count", "description": "Number of tickers held by the investor in this dataset."},
+        {"sheet": "changelog_*", "column": "delta_pct_points", "description": "Change in ownership percentage points between previous and selected periods."},
+    ])
+
+
+@st.cache_data(show_spinner=False)
+def _build_ai_export_frames(date_str: str, previous_period: str | None, db_mtime: float) -> dict:
+    period_df = load_period(date_str).copy()
+    period_df["period_date"] = pd.to_datetime(period_df["date"]).dt.strftime("%Y-%m-%d")
+    period_df["local_foreign_label"] = period_df["local_foreign"].apply(_lf_text)
+
+    stock_summary = (
+        period_df.groupby(["share_code", "issuer_name"], dropna=False)
+        .agg(
+            holder_rows=("investor_name", "count"),
+            unique_investors=("investor_name", "nunique"),
+            tracked_ownership_pct=("percentage", "sum"),
+            local_holder_rows=("local_foreign", lambda s: (s == "L").sum()),
+            foreign_holder_rows=("local_foreign", lambda s: (s == "F").sum()),
+            unclassified_holder_rows=("local_foreign", lambda s: (~s.isin(["L", "F"])).sum()),
+            total_tracked_shares=("total_holding_shares", "sum"),
+        )
+        .reset_index()
+        .rename(columns={"share_code": "ticker"})
+        .sort_values(["tracked_ownership_pct", "ticker"], ascending=[False, True])
+    )
+
+    investor_summary = (
+        period_df.groupby(
+            ["investor_name", "investor_classification", "local_foreign", "local_foreign_label", "domicile"],
+            dropna=False,
+        )
+        .agg(
+            stock_count=("share_code", "nunique"),
+            total_tracked_ownership_pct_sum=("percentage", "sum"),
+            total_holding_shares_sum=("total_holding_shares", "sum"),
+        )
+        .reset_index()
+        .rename(columns={
+            "investor_classification": "investor_type",
+            "local_foreign": "local_foreign_code",
+        })
+        .sort_values(["stock_count", "total_tracked_ownership_pct_sum"], ascending=[False, False])
+    )
+
+    stock_for_merge = stock_summary[["ticker", "holder_rows", "tracked_ownership_pct"]].rename(
+        columns={
+            "holder_rows": "ticker_holder_rows",
+            "tracked_ownership_pct": "ticker_tracked_ownership_pct",
+        }
+    )
+    investor_for_merge = investor_summary[
+        ["investor_name", "stock_count", "total_tracked_ownership_pct_sum"]
+    ].rename(columns={
+        "stock_count": "investor_stock_count",
+        "total_tracked_ownership_pct_sum": "investor_total_tracked_pct_sum",
+    })
+
+    holdings = period_df.copy()
+    holdings["rank_in_ticker"] = (
+        holdings.groupby("share_code")["percentage"].rank(method="first", ascending=False).astype(int)
+    )
+    holdings["ownership_decimal"] = holdings["percentage"] / 100
+    holdings = holdings.rename(columns={
+        "share_code": "ticker",
+        "investor_classification": "investor_type",
+        "local_foreign": "local_foreign_code",
+        "percentage": "ownership_pct",
+    })
+    holdings = holdings.merge(stock_for_merge, on="ticker", how="left")
+    holdings = holdings.merge(investor_for_merge, on="investor_name", how="left")
+    holdings = holdings[
+        [
+            "period_date", "ticker", "issuer_name", "investor_name", "investor_type",
+            "local_foreign_code", "local_foreign_label", "nationality", "domicile",
+            "holdings_scripless", "holdings_scrip", "total_holding_shares",
+            "ownership_pct", "ownership_decimal", "rank_in_ticker",
+            "ticker_holder_rows", "ticker_tracked_ownership_pct",
+            "investor_stock_count", "investor_total_tracked_pct_sum",
+            "source_file",
+        ]
+    ].sort_values(["ticker", "rank_in_ticker", "investor_name"])
+
+    frames = {
+        "ai_holdings": holdings,
+        "stock_summary": stock_summary,
+        "investor_summary": investor_summary,
+        "data_dictionary": _data_dictionary(),
+    }
+
+    if previous_period:
+        previous_df = load_period(previous_period)
+        chg = compute_changelog(previous_df, period_df)
+
+        entry_counts = pd.Series([code for code, _ in chg["new_entries"]]).value_counts()
+        exit_counts = pd.Series([code for code, _ in chg["exits"]]).value_counts()
+        pct_counts = (
+            chg["pct_changes"].groupby("share_code").size()
+            if not chg["pct_changes"].empty
+            else pd.Series(dtype="int64")
+        )
+        rename_counts = pd.Series([r["share_code"] for r in chg["suspected_renames"]]).value_counts()
+        changed_codes = sorted(set(chg["changed_stocks"]) | set(chg["new_stocks"]) | set(chg["closed_stocks"]))
+        frames["changelog_summary"] = pd.DataFrame([{
+            "ticker": code,
+            "issuer_name": (
+                period_df.loc[period_df["share_code"] == code, "issuer_name"].iloc[0]
+                if not period_df.loc[period_df["share_code"] == code].empty
+                else (
+                    previous_df.loc[previous_df["share_code"] == code, "issuer_name"].iloc[0]
+                    if not previous_df.loc[previous_df["share_code"] == code].empty
+                    else ""
+                )
+            ),
+            "is_new_stock": code in chg["new_stocks"],
+            "is_closed_stock": code in chg["closed_stocks"],
+            "new_holder_count": int(entry_counts.get(code, 0)),
+            "exited_holder_count": int(exit_counts.get(code, 0)),
+            "pct_changed_holder_count": int(pct_counts.get(code, 0)),
+            "suspected_rename_count": int(rename_counts.get(code, 0)),
+        } for code in changed_codes])
+
+        frames["changelog_new_holders"] = pd.DataFrame(
+            chg["new_entries"], columns=["ticker", "investor_name"]
+        )
+        frames["changelog_exited_holders"] = pd.DataFrame(
+            chg["exits"], columns=["ticker", "investor_name"]
+        )
+        pct_changes = chg["pct_changes"].rename(columns={
+            "share_code": "ticker",
+            "old_pct": f"ownership_pct_{previous_period}",
+            "new_pct": f"ownership_pct_{date_str}",
+            "delta": "delta_pct_points",
+        })
+        frames["changelog_pct_changes"] = pct_changes
+        frames["suspected_name_changes"] = pd.DataFrame(chg["suspected_renames"]).rename(columns={
+            "share_code": "ticker",
+            "old_pct": f"ownership_pct_{previous_period}",
+            "new_pct": f"ownership_pct_{date_str}",
+        })
+
+    return frames
+
+
+@st.cache_data(show_spinner=False)
+def _export_excel_bytes(date_str: str, previous_period: str | None, db_mtime: float) -> bytes:
+    frames = _build_ai_export_frames(date_str, previous_period, db_mtime)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet_name, frame in frames.items():
+            frame.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+    return output.getvalue()
+
+
+@st.cache_data(show_spinner=False)
+def _export_csv_zip_bytes(date_str: str, previous_period: str | None, db_mtime: float) -> bytes:
+    frames = _build_ai_export_frames(date_str, previous_period, db_mtime)
+    output = BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, frame in frames.items():
+            zf.writestr(f"{name}.csv", frame.to_csv(index=False, encoding="utf-8-sig"))
+    return output.getvalue()
 
 # ── Init DB ───────────────────────────────────────────────────────────────────
 init_db()
@@ -222,6 +646,16 @@ init_db()
 @st.cache_data(show_spinner=False)
 def _load(date_str: str) -> pd.DataFrame:
     return load_period(date_str)
+
+
+@st.cache_data(show_spinner=False)
+def _changelog_between(p_from: str, p_to: str, db_mtime: float, cache_version: int) -> dict:
+    return compute_changelog(load_period(p_from), load_period(p_to))
+
+
+@st.cache_data(show_spinner=False)
+def _metrics_for_period(date_str: str, db_mtime: float, cache_version: int) -> dict:
+    return get_metrics(load_period(date_str))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -262,6 +696,11 @@ with st.sidebar:
                 if col1.button("🔄 Replace", use_container_width=True):
                     delete_period(period_str)
                     _load.clear()
+                    _metrics_for_period.clear()
+                    _changelog_between.clear()
+                    _build_ai_export_frames.clear()
+                    _export_excel_bytes.clear()
+                    _export_csv_zip_bytes.clear()
                     insert_holdings(df_parsed, uploaded.name)
                     st.success(f"Replaced — {n_rows:,} rows")
                     st.rerun()
@@ -270,6 +709,11 @@ with st.sidebar:
             else:
                 insert_holdings(df_parsed, uploaded.name)
                 _load.clear()
+                _metrics_for_period.clear()
+                _changelog_between.clear()
+                _build_ai_export_frames.clear()
+                _export_excel_bytes.clear()
+                _export_csv_zip_bytes.clear()
                 st.success(f"✅ **{period_label_up}** uploaded — {n_rows:,} rows")
                 st.rerun()
 
@@ -289,6 +733,48 @@ with st.sidebar:
         index=len(periods) - 1,
     )
 
+    st.markdown("---")
+    st.markdown("### ⬇️ Export Data")
+    export_previous = max([p for p in periods if p < selected], default=None)
+    export_mtime = DB_PATH.stat().st_mtime if DB_PATH.exists() else 0.0
+    export_label = pd.to_datetime(selected).strftime("%Y%m%d")
+    export_help = (
+        "AI-friendly export: normalized holdings, stock summary, investor summary, "
+        "data dictionary, and changelog sheets when a previous period exists."
+    )
+    export_state_key = f"{selected}:{export_previous}:{export_mtime}"
+    if st.session_state.get("export_state_key") != export_state_key:
+        st.session_state.pop("excel_export_bytes", None)
+        st.session_state.pop("csv_export_bytes", None)
+        st.session_state["export_state_key"] = export_state_key
+
+    if st.button("Generate Export Files", help=export_help, use_container_width=True):
+        with st.spinner("Menyiapkan file export..."):
+            st.session_state["excel_export_bytes"] = _export_excel_bytes(
+                selected, export_previous, export_mtime
+            )
+            st.session_state["csv_export_bytes"] = _export_csv_zip_bytes(
+                selected, export_previous, export_mtime
+            )
+
+    if "excel_export_bytes" in st.session_state and "csv_export_bytes" in st.session_state:
+        st.download_button(
+            "Download Excel",
+            data=st.session_state["excel_export_bytes"],
+            file_name=f"ksei_ai_export_{export_label}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help=export_help,
+            use_container_width=True,
+        )
+        st.download_button(
+            "Download CSV ZIP",
+            data=st.session_state["csv_export_bytes"],
+            file_name=f"ksei_ai_export_{export_label}_csv.zip",
+            mime="application/zip",
+            help=export_help,
+            use_container_width=True,
+        )
+
     uploads_df = get_uploads()
     if not uploads_df.empty:
         st.markdown("---")
@@ -305,16 +791,28 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN CONTENT
 # ══════════════════════════════════════════════════════════════════════════════
-df = _load(selected)
 period_label = pd.to_datetime(selected).strftime("%d %b %Y")
 
 st.markdown(
-    f"<div style='padding:0.25rem 0 0.75rem 0; border-bottom:1px solid #e2e8f0; margin-bottom:0.75rem'>"
-    f"<span style='font-size:1.2rem;font-weight:700;color:#0f172a'>📊 KSEI Ownership</span>"
-    f"&nbsp;&nbsp;<span style='color:#94a3b8;font-size:0.875rem'>Period: {period_label}</span>"
-    f"</div>",
+    f"""
+    <div class="ref-topbar">
+        <div class="ref-brand">
+            <span class="ref-market">ID</span>
+            <span class="ref-idx">IDX</span>
+            <span class="ref-dot">·</span>
+            <span class="ref-title">1% Ownership</span>
+        </div>
+        <div class="ref-meta">Per {period_label} &nbsp; · &nbsp; Sumber: KSEI</div>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
+
+page_status = st.empty()
+page_progress = page_status.progress(5, text="Menyiapkan dashboard dan membaca database...")
+db_mtime = DB_PATH.stat().st_mtime if DB_PATH.exists() else 0.0
+df = _load(selected)
+page_progress.progress(25, text="Data periode dimuat. Menyusun filter...")
 
 all_types = ["Semua"] + sorted(
     df["investor_classification"].replace("", pd.NA).dropna().unique()
@@ -323,7 +821,7 @@ all_types = ["Semua"] + sorted(
 tabs = st.tabs([
     "📋 Ringkasan Saham",
     "👤 Per Investor",
-    "🔗 Kongsi Stocks",
+    "🔗 Konglo Stocks",
     "📈 Metrik",
     "🔄 Changelog",
 ])
@@ -333,6 +831,7 @@ tab_saham, tab_investor, tab_kongsi, tab_metrik, tab_changelog = tabs
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — RINGKASAN SAHAM
 # ══════════════════════════════════════════════════════════════════════════════
+page_progress.progress(35, text="Menyusun Ringkasan Saham...")
 with tab_saham:
     fc1, fc2, fc3, fc4 = st.columns([3, 1, 2, 1])
     q        = fc1.text_input("🔍 Cari kode saham atau nama emiten", placeholder="e.g. BBCA / BCA", key="qs")
@@ -418,6 +917,7 @@ with tab_saham:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — PER INVESTOR
 # ══════════════════════════════════════════════════════════════════════════════
+page_progress.progress(50, text="Menyusun Per Investor...")
 with tab_investor:
     fi1, fi2, fi3, fi4 = st.columns([3, 1, 2, 2])
     qi    = fi1.text_input("🔍 Cari nama investor", placeholder="e.g. Garibaldi Thohir", key="qi")
@@ -487,8 +987,9 @@ with tab_investor:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — KONGSI STOCKS
+# TAB 3 — KONGLO STOCKS
 # ══════════════════════════════════════════════════════════════════════════════
+page_progress.progress(62, text="Menyusun Konglo Stocks...")
 with tab_kongsi:
     st.markdown(
         "Grup investor yang memegang ≥ threshold% di beberapa emiten sekaligus.",
@@ -538,54 +1039,70 @@ with tab_kongsi:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — METRIK
 # ══════════════════════════════════════════════════════════════════════════════
+page_progress.progress(74, text="Menghitung metrik dan grafik...")
 with tab_metrik:
-    m = get_metrics(df)
+    m = _metrics_for_period(selected, db_mtime, ANALYTICS_CACHE_VERSION)
+    if "unclassified_investors" not in m:
+        m["unclassified_investors"] = 0
+    if m["lf_counts"]["label"].isna().any():
+        m["lf_counts"]["label"] = m["lf_counts"]["label"].fillna("Tidak Terklasifikasi")
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
     k1.metric("Total Emiten",      f"{m['total_stocks']:,}")
     k2.metric("Total Investor",    f"{m['total_investors']:,}")
     k3.metric("Investor Lokal",    f"{m['local_investors']:,}")
     k4.metric("Investor Asing",    f"{m['foreign_investors']:,}")
-    k5.metric("Rata-rata Holders", f"{m['avg_holders']:.1f}")
-    k6.metric("Dominasi Lokal",    f"{m['local_pct_share']:.1f}%")
+    k5.metric("Tidak Terklasifikasi", f"{m.get('unclassified_investors', 0):,}")
+    k6.metric("Rata-rata Holders", f"{m['avg_holders']:.1f}")
+    k7.metric("Dominasi Lokal",    f"{m['local_pct_share']:.1f}%")
 
     st.markdown("---")
 
     ca, cb = st.columns(2)
 
     with ca:
-        st.markdown("#### Lokal vs Asing (Jumlah Investor)")
+        st.markdown("#### Lokal vs Asing vs Tidak Terklasifikasi")
         lf_data = m["lf_counts"].copy()
-        chart_lf = (
-            alt.Chart(lf_data)
-            .mark_arc(innerRadius=55)
-            .encode(
-                theta  =alt.Theta("count:Q"),
-                color  =alt.Color(
-                    "label:N",
-                    scale=alt.Scale(domain=["Local","Foreign"], range=["#10b981","#3b82f6"]),
-                    legend=alt.Legend(title=""),
-                ),
-                tooltip=["label:N", "count:Q"],
-            )
-            .properties(height=220, width="container")
+        lf_palette = {
+            "Lokal": "#10b981",
+            "Asing": "#3b82f6",
+            "Tidak Terklasifikasi": "#f59e0b",
+        }
+        lf_colors = [lf_palette.get(label, "#f59e0b") for label in lf_data["label"]]
+        st.plotly_chart(
+            donut_chart(lf_data, "label", "count", colors=lf_colors),
+            width="stretch",
+            config={"displayModeBar": False},
         )
-        st.altair_chart(chart_lf)
 
     with cb:
         st.markdown("#### Distribusi Tipe Investor")
-        type_data = m["type_counts"].head(9).copy()
-        chart_type = (
-            alt.Chart(type_data)
-            .mark_arc(innerRadius=55)
-            .encode(
-                theta  =alt.Theta("count:Q"),
-                color  =alt.Color("investor_classification:N", legend=alt.Legend(title="")),
-                tooltip=["investor_classification:N", "count:Q"],
+        type_full = m["type_counts"].copy()
+        type_full["investor_classification"] = type_full["investor_classification"].replace("", "Unknown/Other")
+        type_main = type_full.head(8).copy()
+        type_other = type_full.iloc[8:]
+        if not type_other.empty:
+            type_main = pd.concat(
+                [
+                    type_main,
+                    pd.DataFrame(
+                        [{
+                            "investor_classification": "Lainnya",
+                            "count": type_other["count"].sum(),
+                        }]
+                    ),
+                ],
+                ignore_index=True,
             )
-            .properties(height=220, width="container")
+        type_colors = [
+            "#0f75bc", "#62b5e5", "#ef4444", "#f2a7a0", "#20a39e",
+            "#6fcf97", "#f97316", "#f7c948", "#8b5cf6",
+        ][:len(type_main)]
+        st.plotly_chart(
+            donut_chart(type_main, "investor_classification", "count", colors=type_colors),
+            width="stretch",
+            config={"displayModeBar": False},
         )
-        st.altair_chart(chart_type)
 
     st.markdown("---")
 
@@ -655,6 +1172,7 @@ with tab_metrik:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — CHANGELOG
 # ══════════════════════════════════════════════════════════════════════════════
+page_progress.progress(86, text="Menyiapkan changelog antar periode...")
 with tab_changelog:
     all_periods = get_available_periods()
 
@@ -680,9 +1198,9 @@ with tab_changelog:
     )
 
     with st.spinner("Menghitung perubahan …"):
-        df_old = _load(p_from)
-        df_new = _load(p_to)
-        chg    = compute_changelog(df_old, df_new)
+        df_old = load_period(p_from)
+        df_new = load_period(p_to)
+        chg = _changelog_between(p_from, p_to, db_mtime, ANALYTICS_CACHE_VERSION)
 
     lbl_from = pd.to_datetime(p_from).strftime("%d %b %Y")
     lbl_to   = pd.to_datetime(p_to).strftime("%d %b %Y")
@@ -699,107 +1217,195 @@ with tab_changelog:
     st.markdown("---")
 
     if chg["suspected_renames"]:
-        st.markdown('<p class="sec-hdr">⚠️ Kemungkinan Perubahan Nama (bukan perubahan nyata)</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sec-hdr">Kemungkinan Perubahan Nama (bukan perubahan nyata)</p>', unsafe_allow_html=True)
         st.caption(
-            "Pasangan investor di bawah ini tercatat masuk/keluar, "
-            "namun namanya sangat mirip dan kepemilikannya hampir sama. "
-            "Kemungkinan hanya perbedaan penulisan di laporan KSEI — bukan perpindahan kepemilikan."
+            "Klik ticker untuk melihat pasangan nama investor yang mirip. "
+            "Bagian ini hanya memuat nama yang mirip dengan jumlah saham dan persentase yang tidak berubah."
         )
+
+        rename_by_code = {}
         for r in chg["suspected_renames"]:
-            c1, c2 = st.columns(2)
-            c1.markdown(
-                f"❌ `{r['old_name']}` &nbsp; `{r['old_pct']:.2f}%`",
+            rename_by_code.setdefault(r["share_code"], []).append(r)
+
+        rename_codes = sorted(rename_by_code)
+        selected_rename = st.selectbox(
+            "Pilih ticker untuk detail kemungkinan perubahan nama",
+            ["—"] + rename_codes,
+            format_func=lambda code: (
+                "Pilih ticker"
+                if code == "—"
+                else f"{code} · {len(rename_by_code[code])} pasangan"
+            ),
+            key="rename_detail_select",
+        )
+
+        if selected_rename != "—":
+            st.markdown(
+                f'<div class="chg-detail-card">{b_ticker(selected_rename)}'
+                f'<span class="chg-issuer">{len(rename_by_code[selected_rename])} kemungkinan perubahan nama</span>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
-            c2.markdown(
-                f"✅ `{r['new_name']}` &nbsp; `{r['new_pct']:.2f}%`",
-                unsafe_allow_html=True,
-            )
-            st.caption(
-                f"{r['share_code']} · Kemiripan nama: {r['similarity']}%"
-            )
+            rename_rows = pd.DataFrame(rename_by_code[selected_rename])[
+                ["old_name", "new_name", "old_pct", "new_pct", "similarity"]
+            ].copy()
+            rename_rows.columns = [
+                f"Nama ({lbl_from})",
+                f"Nama ({lbl_to})",
+                f"% ({lbl_from})",
+                f"% ({lbl_to})",
+                "Kemiripan",
+            ]
+            rename_rows[f"% ({lbl_from})"] = rename_rows[f"% ({lbl_from})"].apply(lambda x: f"{x:.2f}%")
+            rename_rows[f"% ({lbl_to})"] = rename_rows[f"% ({lbl_to})"].apply(lambda x: f"{x:.2f}%")
+            rename_rows["Kemiripan"] = rename_rows["Kemiripan"].apply(lambda x: f"{x}%")
+            st.dataframe(rename_rows, width="stretch", hide_index=True)
         st.markdown("---")
 
+    def _stock_issuer(frame, code):
+        sub = frame[frame["share_code"] == code]
+        return sub["issuer_name"].iloc[0] if not sub.empty else ""
+
+    def _holder_rows(frame, code, investors=None):
+        sub = frame[frame["share_code"] == code].copy()
+        if investors is not None:
+            sub = sub[sub["investor_name"].isin(investors)]
+        sub = sub.sort_values("percentage", ascending=False)
+        disp = sub[
+            [
+                "investor_name",
+                "investor_classification",
+                "local_foreign",
+                "domicile",
+                "total_holding_shares",
+                "percentage",
+            ]
+        ].copy()
+        disp.columns = ["Pemegang Saham", "Tipe", "Status", "Domisili", "Saham", "%"]
+        disp["Status"] = disp["Status"].map({"L": "Lokal", "F": "Asing"}).fillna(disp["Status"])
+        disp["Saham"] = disp["Saham"].apply(lambda x: f"{int(x):,}")
+        disp["%"] = disp["%"].apply(lambda x: f"{x:.2f}%")
+        return disp
+
+    new_entries_map = {}
+    exits_map = {}
+    for sc, inv in chg["new_entries"]:
+        new_entries_map.setdefault(sc, []).append(inv)
+    for sc, inv in chg["exits"]:
+        exits_map.setdefault(sc, []).append(inv)
+
     if chg["new_stocks"]:
-        st.markdown('<p class="sec-hdr">🆕 Saham Baru</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sec-hdr">Saham Baru</p>', unsafe_allow_html=True)
         for code in chg["new_stocks"]:
-            sub   = df_new[df_new["share_code"] == code]
-            name  = sub["issuer_name"].iloc[0] if not sub.empty else ""
-            n_inv = len(sub)
-            st.markdown(
-                f"&nbsp;{b_ticker(code)} &nbsp;**{name}** — {n_inv} investor tercatat",
-                unsafe_allow_html=True,
-            )
+            sub = df_new[df_new["share_code"] == code]
+            issuer = _stock_issuer(df_new, code)
+            with st.expander(code):
+                st.markdown(
+                    f'<div class="chg-stock-head">'
+                    f'<div>{b_ticker(code)}<span class="chg-issuer">{issuer}</span></div>'
+                    f'<div class="chg-summary">{len(sub)} investor tercatat</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                st.dataframe(_holder_rows(df_new, code), width="stretch", hide_index=True)
 
     if chg["closed_stocks"]:
-        st.markdown('<p class="sec-hdr">❌ Saham Ditutup / Tidak Muncul</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sec-hdr">Saham Ditutup / Tidak Muncul</p>', unsafe_allow_html=True)
         for code in chg["closed_stocks"]:
-            sub  = df_old[df_old["share_code"] == code]
-            name = sub["issuer_name"].iloc[0] if not sub.empty else ""
-            st.markdown(
-                f"&nbsp;{b_ticker(code)} &nbsp;**{name}**",
-                unsafe_allow_html=True,
-            )
+            sub = df_old[df_old["share_code"] == code]
+            issuer = _stock_issuer(df_old, code)
+            with st.expander(code):
+                st.markdown(
+                    f'<div class="chg-stock-head">'
+                    f'<div>{b_ticker(code)}<span class="chg-issuer">{issuer}</span></div>'
+                    f'<div class="chg-summary">{len(sub)} investor pada periode sebelumnya</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                st.dataframe(_holder_rows(df_old, code), width="stretch", hide_index=True)
 
     if chg["changed_stocks"]:
-        st.markdown('<p class="sec-hdr">🔄 Perubahan Pemegang Saham per Emiten</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sec-hdr">Perubahan Pemegang Saham per Emiten</p>', unsafe_allow_html=True)
 
-        new_entries_map: dict[str, list] = {}
-        exits_map:       dict[str, list] = {}
-        for sc, inv in chg["new_entries"]:
-            new_entries_map.setdefault(sc, []).append(inv)
-        for sc, inv in chg["exits"]:
-            exits_map.setdefault(sc, []).append(inv)
-
+        changed_rows = []
+        pct_counts = (
+            chg["pct_changes"].groupby("share_code").size().to_dict()
+            if not chg["pct_changes"].empty
+            else {}
+        )
         for code in chg["changed_stocks"]:
-            sub_new = df_new[df_new["share_code"] == code]
-            issuer  = sub_new["issuer_name"].iloc[0] if not sub_new.empty else ""
-            entered = new_entries_map.get(code, [])
-            exited  = exits_map.get(code, [])
+            changed_rows.append({
+                "Ticker": code,
+                "Emiten": _stock_issuer(df_new, code) or _stock_issuer(df_old, code),
+                "Masuk": len(new_entries_map.get(code, [])),
+                "Keluar": len(exits_map.get(code, [])),
+                "Berubah %": int(pct_counts.get(code, 0)),
+            })
 
+        changed_summary = pd.DataFrame(changed_rows)
+        st.dataframe(changed_summary, width="stretch", hide_index=True, height=260)
+
+        selected_changed = st.selectbox(
+            "Pilih ticker untuk detail perubahan pemegang saham",
+            ["—"] + chg["changed_stocks"],
+            format_func=lambda code: (
+                "Pilih ticker"
+                if code == "—"
+                else f"{code} · {_stock_issuer(df_new, code) or _stock_issuer(df_old, code)}"
+            ),
+            key="changed_detail_select",
+        )
+
+        if selected_changed != "—":
+            code = selected_changed
+            issuer = _stock_issuer(df_new, code) or _stock_issuer(df_old, code)
+            entered = new_entries_map.get(code, [])
+            exited = exits_map.get(code, [])
             pct_sub = pd.DataFrame()
             if not chg["pct_changes"].empty:
                 pct_sub = chg["pct_changes"][chg["pct_changes"]["share_code"] == code]
 
-            with st.expander(
-                f"{code} — {issuer}  ·  +{len(entered)} masuk / -{len(exited)} keluar"
-            ):
-                if entered:
-                    st.markdown("**🟢 Masuk (pemegang baru):**")
-                    for inv in entered:
-                        row_inv  = sub_new[sub_new["investor_name"] == inv]
-                        pct      = row_inv["percentage"].iloc[0] if not row_inv.empty else 0.0
-                        inv_t    = row_inv["investor_classification"].iloc[0] if not row_inv.empty else ""
-                        lf_v     = row_inv["local_foreign"].iloc[0] if not row_inv.empty else ""
-                        st.markdown(
-                            f"&nbsp;&nbsp;▶ **{inv}** &nbsp;{b_type(inv_t)}&nbsp;{b_lf(lf_v)}&nbsp; `{pct:.2f}%`",
-                            unsafe_allow_html=True,
-                        )
+            st.markdown(
+                f'<div class="chg-stock-head">'
+                f'<div>{b_ticker(code)}<span class="chg-issuer">{issuer}</span></div>'
+                f'<div class="chg-summary">+{len(entered)} masuk / -{len(exited)} keluar / '
+                f'{len(pct_sub)} berubah %</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-                if exited:
-                    st.markdown("**🔴 Keluar (tidak muncul lagi):**")
-                    for inv in exited:
-                        row_inv  = df_old[(df_old["share_code"] == code) & (df_old["investor_name"] == inv)]
-                        pct      = row_inv["percentage"].iloc[0] if not row_inv.empty else 0.0
-                        inv_t    = row_inv["investor_classification"].iloc[0] if not row_inv.empty else ""
-                        st.markdown(
-                            f"&nbsp;&nbsp;◀ **{inv}** &nbsp;{b_type(inv_t)}&nbsp; sebelumnya `{pct:.2f}%`",
-                            unsafe_allow_html=True,
-                        )
+            if entered:
+                st.markdown("**Pemegang baru**")
+                st.dataframe(_holder_rows(df_new, code, entered), width="stretch", hide_index=True)
 
-                if not pct_sub.empty:
-                    st.markdown("**📊 Perubahan % Kepemilikan:**")
-                    disp = pct_sub[["investor_name", "old_pct", "new_pct", "delta"]].copy()
-                    disp.columns = ["Investor", f"% ({lbl_from})", f"% ({lbl_to})", "Δ"]
-                    disp[f"% ({lbl_from})"] = disp[f"% ({lbl_from})"].apply(lambda x: f"{x:.2f}%")
-                    disp[f"% ({lbl_to})"]   = disp[f"% ({lbl_to})"].apply(lambda x: f"{x:.2f}%")
-                    disp["Δ"] = disp["Δ"].apply(
-                        lambda x: f"▲ {x:.2f}%" if x > 0 else f"▼ {abs(x):.2f}%"
-                    )
-                    st.dataframe(disp, width="stretch", hide_index=True)
+            if exited:
+                st.markdown("**Pemegang keluar**")
+                old_exit = _holder_rows(df_old, code, exited)
+                old_exit = old_exit.rename(columns={"%": f"% ({lbl_from})"})
+                st.dataframe(old_exit, width="stretch", hide_index=True)
+
+            if not pct_sub.empty:
+                st.markdown("**Perubahan % kepemilikan**")
+                disp = pct_sub[["investor_name", "old_pct", "new_pct", "delta"]].copy()
+                disp.columns = ["Pemegang Saham", f"% ({lbl_from})", f"% ({lbl_to})", "Delta"]
+                disp[f"% ({lbl_from})"] = disp[f"% ({lbl_from})"].apply(lambda x: f"{x:.2f}%")
+                disp[f"% ({lbl_to})"] = disp[f"% ({lbl_to})"].apply(lambda x: f"{x:.2f}%")
+                disp["Delta"] = disp["Delta"].apply(
+                    lambda x: f"+{x:.2f} pp" if x > 0 else f"{x:.2f} pp"
+                )
+                st.dataframe(disp, width="stretch", hide_index=True)
+
+            if not entered and not exited and pct_sub.empty:
+                st.markdown(
+                    '<div class="chg-empty">Tidak ada detail perubahan untuk ticker ini.</div>',
+                    unsafe_allow_html=True,
+                )
 
     elif not chg["new_stocks"] and not chg["closed_stocks"]:
         st.success("✅ Tidak ada perubahan yang terdeteksi antara dua periode ini.")
+
+page_progress.progress(100, text="Dashboard siap.")
+page_status.empty()
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")

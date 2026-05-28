@@ -30,14 +30,19 @@ def compute_changelog(df_old: pd.DataFrame, df_new: pd.DataFrame) -> dict:
     new_stocks   = sorted(new_stocks_set - old_stocks)
     closed_stocks = sorted(old_stocks - new_stocks_set)
 
-    # Build (share_code, investor_name) → percentage mapping.
+    # Build (share_code, investor_name) → percentage / share mappings.
     # groupby deduplicates and sorts the index, avoiding both the
     # "ambiguous Series truth value" error and the lexsort PerformanceWarning.
     def _key_pct(df):
         return df.groupby(["share_code", "investor_name"])["percentage"].sum()
 
+    def _key_shares(df):
+        return df.groupby(["share_code", "investor_name"])["total_holding_shares"].sum()
+
     old_kp = _key_pct(df_old)
     new_kp = _key_pct(df_new)
+    old_ks = _key_shares(df_old)
+    new_ks = _key_shares(df_new)
 
     old_pairs = set(old_kp.index)
     new_pairs = set(new_kp.index)
@@ -76,7 +81,8 @@ def compute_changelog(df_old: pd.DataFrame, df_new: pd.DataFrame) -> dict:
     changed_stocks = sorted(changed & (old_stocks & new_stocks_set))
 
     # Suspected renames: exit + entry on the same stock with very similar
-    # names (≥ 85% character similarity) and nearly identical % (≤ 1.0 pp).
+    # names and unchanged ownership. If % or share count changed, treat it as
+    # a real holder change instead of a cosmetic naming issue.
     # Display-only — does not suppress or merge anything in the actual data.
     exits_by_code: dict[str, list] = {}
     entries_by_code: dict[str, list] = {}
@@ -89,16 +95,22 @@ def compute_changelog(df_old: pd.DataFrame, df_new: pd.DataFrame) -> dict:
     for code in set(exits_by_code) & set(entries_by_code):
         for old_inv in exits_by_code[code]:
             old_pct = float(old_kp[(code, old_inv)])
+            old_shares = float(old_ks[(code, old_inv)])
             for new_inv in entries_by_code[code]:
                 new_pct = float(new_kp[(code, new_inv)])
+                new_shares = float(new_ks[(code, new_inv)])
                 ratio = SequenceMatcher(None, old_inv, new_inv).ratio()
-                if ratio >= 0.85 and abs(old_pct - new_pct) <= 1.0:
+                pct_unchanged = abs(old_pct - new_pct) < 0.01
+                shares_unchanged = abs(old_shares - new_shares) < 1
+                if ratio >= 0.85 and pct_unchanged and shares_unchanged:
                     suspected_renames.append({
                         "share_code": code,
                         "old_name":   old_inv,
                         "new_name":   new_inv,
                         "old_pct":    old_pct,
                         "new_pct":    new_pct,
+                        "old_shares": old_shares,
+                        "new_shares": new_shares,
                         "similarity": round(ratio * 100),
                     })
 
@@ -122,6 +134,7 @@ def get_metrics(df: pd.DataFrame) -> dict:
     total_investors = df["investor_name"].nunique()
     local_investors   = df[df["local_foreign"] == "L"]["investor_name"].nunique()
     foreign_investors = df[df["local_foreign"] == "F"]["investor_name"].nunique()
+    unclassified_investors = df[~df["local_foreign"].isin(["L", "F"])]["investor_name"].nunique()
 
     avg_holders = df.groupby("share_code").size().mean()
 
@@ -138,7 +151,12 @@ def get_metrics(df: pd.DataFrame) -> dict:
         .reset_index()
         .rename(columns={"investor_name": "count"})
     )
-    lf_counts["label"] = lf_counts["local_foreign"].map({"L": "Local", "F": "Foreign"})
+    lf_counts["label"] = (
+        lf_counts["local_foreign"]
+        .map({"L": "Lokal", "F": "Asing"})
+        .fillna("Tidak Terklasifikasi")
+    )
+    lf_counts.loc[lf_counts["local_foreign"] == "", "label"] = "Tidak Terklasifikasi"
 
     # Investor type distribution
     type_counts = (
@@ -199,6 +217,7 @@ def get_metrics(df: pd.DataFrame) -> dict:
         "total_investors":        total_investors,
         "local_investors":        local_investors,
         "foreign_investors":      foreign_investors,
+        "unclassified_investors":  unclassified_investors,
         "avg_holders":            avg_holders,
         "local_pct_share":        local_pct_share,
         "lf_counts":              lf_counts,
@@ -210,11 +229,11 @@ def get_metrics(df: pd.DataFrame) -> dict:
     }
 
 
-# ── Kongsi Groups ─────────────────────────────────────────────────────────────
+# ── Konglo Groups ─────────────────────────────────────────────────────────────
 
 def find_kongsi_groups(df: pd.DataFrame, min_pct: float = 5.0, min_stocks: int = 2) -> list[dict]:
     """
-    Identify 'kongsi' groups: investors who hold ≥ min_pct% in ≥ min_stocks stocks.
+    Identify 'konglo' groups: investors who hold ≥ min_pct% in ≥ min_stocks stocks.
 
     Returns a list of dicts, each with:
       - investor_name
