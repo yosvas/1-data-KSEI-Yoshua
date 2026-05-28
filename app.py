@@ -568,9 +568,9 @@ with tab_metrik:
                 ),
                 tooltip=["label:N", "count:Q"],
             )
-            .properties(height=220)
+            .properties(height=220, width="container")
         )
-        st.altair_chart(chart_lf, use_container_width=True)
+        st.altair_chart(chart_lf)
 
     with cb:
         st.markdown("#### Distribusi Tipe Investor")
@@ -583,9 +583,9 @@ with tab_metrik:
                 color  =alt.Color("investor_classification:N", legend=alt.Legend(title="")),
                 tooltip=["investor_classification:N", "count:Q"],
             )
-            .properties(height=220)
+            .properties(height=220, width="container")
         )
-        st.altair_chart(chart_type, use_container_width=True)
+        st.altair_chart(chart_type)
 
     st.markdown("---")
 
@@ -601,9 +601,9 @@ with tab_metrik:
                 y      =alt.Y("investor_name:N", sort="-x", title=""),
                 tooltip=["investor_name:N", "n_stocks:Q"],
             )
-            .properties(height=420)
+            .properties(height=420, width="container")
         )
-        st.altair_chart(chart_top, use_container_width=True)
+        st.altair_chart(chart_top)
 
     with cd:
         st.markdown("#### Top 20 Investor Asing – Paling Banyak Saham")
@@ -615,9 +615,9 @@ with tab_metrik:
                 y      =alt.Y("investor_name:N", sort="-x", title=""),
                 tooltip=["investor_name:N", "n_stocks:Q"],
             )
-            .properties(height=420)
+            .properties(height=420, width="container")
         )
-        st.altair_chart(chart_foreign, use_container_width=True)
+        st.altair_chart(chart_foreign)
 
     st.markdown("---")
 
@@ -633,9 +633,9 @@ with tab_metrik:
                 y      =alt.Y("share_code:N", sort="-x", title=""),
                 tooltip=["share_code:N", "issuer_name:N", "n_holders:Q", "total_pct:Q"],
             )
-            .properties(height=500)
+            .properties(height=500, width="container")
         )
-        st.altair_chart(chart_holders, use_container_width=True)
+        st.altair_chart(chart_holders)
 
     with cf:
         st.markdown("#### Negara Asal Investor Asing (Top 20)")
@@ -647,9 +647,9 @@ with tab_metrik:
                 y      =alt.Y("domicile:N", sort="-x", title=""),
                 tooltip=["domicile:N", "count:Q"],
             )
-            .properties(height=500)
+            .properties(height=500, width="container")
         )
-        st.altair_chart(chart_country, use_container_width=True)
+        st.altair_chart(chart_country)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -740,9 +740,7 @@ with tab_changelog:
                 pct_sub = chg["pct_changes"][chg["pct_changes"]["share_code"] == code]
 
             with st.expander(
-                f"{b_ticker(code)} {issuer} &nbsp;·&nbsp; "
-                f'<span class="chg-new">+{len(entered)}</span> masuk / '
-                f'<span class="chg-exit">-{len(exited)}</span> keluar',
+                f"{code} — {issuer}  ·  +{len(entered)} masuk / -{len(exited)} keluar"
             ):
                 if entered:
                     st.markdown("**🟢 Masuk (pemegang baru):**")
