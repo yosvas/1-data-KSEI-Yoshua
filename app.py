@@ -698,6 +698,28 @@ with tab_changelog:
 
     st.markdown("---")
 
+    if chg["suspected_renames"]:
+        st.markdown('<p class="sec-hdr">⚠️ Kemungkinan Perubahan Nama (bukan perubahan nyata)</p>', unsafe_allow_html=True)
+        st.caption(
+            "Pasangan investor di bawah ini tercatat masuk/keluar, "
+            "namun namanya sangat mirip dan kepemilikannya hampir sama. "
+            "Kemungkinan hanya perbedaan penulisan di laporan KSEI — bukan perpindahan kepemilikan."
+        )
+        for r in chg["suspected_renames"]:
+            c1, c2 = st.columns(2)
+            c1.markdown(
+                f"❌ `{r['old_name']}` &nbsp; `{r['old_pct']:.2f}%`",
+                unsafe_allow_html=True,
+            )
+            c2.markdown(
+                f"✅ `{r['new_name']}` &nbsp; `{r['new_pct']:.2f}%`",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"{r['share_code']} · Kemiripan nama: {r['similarity']}%"
+            )
+        st.markdown("---")
+
     if chg["new_stocks"]:
         st.markdown('<p class="sec-hdr">🆕 Saham Baru</p>', unsafe_allow_html=True)
         for code in chg["new_stocks"]:

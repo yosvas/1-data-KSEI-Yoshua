@@ -4,6 +4,8 @@ All functions operate on DataFrames loaded from the DB (lowercase columns).
 """
 from __future__ import annotations
 
+from difflib import SequenceMatcher
+
 import pandas as pd
 
 
@@ -73,13 +75,41 @@ def compute_changelog(df_old: pd.DataFrame, df_new: pd.DataFrame) -> dict:
         changed.update(pct_changes["share_code"].tolist())
     changed_stocks = sorted(changed & (old_stocks & new_stocks_set))
 
+    # Suspected renames: exit + entry on the same stock with very similar
+    # names (≥ 85% character similarity) and nearly identical % (≤ 1.0 pp).
+    # Display-only — does not suppress or merge anything in the actual data.
+    exits_by_code: dict[str, list] = {}
+    entries_by_code: dict[str, list] = {}
+    for sc, inv in exits:
+        exits_by_code.setdefault(sc, []).append(inv)
+    for sc, inv in new_entries:
+        entries_by_code.setdefault(sc, []).append(inv)
+
+    suspected_renames = []
+    for code in set(exits_by_code) & set(entries_by_code):
+        for old_inv in exits_by_code[code]:
+            old_pct = float(old_kp[(code, old_inv)])
+            for new_inv in entries_by_code[code]:
+                new_pct = float(new_kp[(code, new_inv)])
+                ratio = SequenceMatcher(None, old_inv, new_inv).ratio()
+                if ratio >= 0.85 and abs(old_pct - new_pct) <= 1.0:
+                    suspected_renames.append({
+                        "share_code": code,
+                        "old_name":   old_inv,
+                        "new_name":   new_inv,
+                        "old_pct":    old_pct,
+                        "new_pct":    new_pct,
+                        "similarity": round(ratio * 100),
+                    })
+
     return {
-        "new_stocks":     new_stocks,
-        "closed_stocks":  closed_stocks,
-        "changed_stocks": changed_stocks,
-        "new_entries":    new_entries,
-        "exits":          exits,
-        "pct_changes":    pct_changes,
+        "new_stocks":        new_stocks,
+        "closed_stocks":     closed_stocks,
+        "changed_stocks":    changed_stocks,
+        "new_entries":       new_entries,
+        "exits":             exits,
+        "pct_changes":       pct_changes,
+        "suspected_renames": suspected_renames,
     }
 
 
