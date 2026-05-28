@@ -803,4 +803,4 @@ with tab_changelog:
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
-st.caption("Sumber data: KSEI · Dashboard ini bukan produk resmi KSEI / IDX.")
+st.caption("© 2025 Yoshua Iskandar · Sumber data: KSEI · Dashboard ini bukan produk resmi KSEI / IDX.")
