@@ -65,6 +65,12 @@ def main() -> None:
     os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
     os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"]   = "none"
     os.environ["STREAMLIT_RUNNER_FAST_RERUNS"]         = "false"
+    os.environ["STREAMLIT_THEME_BASE"]                 = "light"
+    os.environ["STREAMLIT_THEME_PRIMARY_COLOR"]        = "#2f7f45"
+    os.environ["STREAMLIT_THEME_BACKGROUND_COLOR"]     = "#f6f2ec"
+    os.environ["STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR"] = "#fffdf9"
+    os.environ["STREAMLIT_THEME_TEXT_COLOR"]           = "#2f2a25"
+    os.environ["STREAMLIT_THEME_FONT"]                 = "sans serif"
 
     # Open browser in background after Streamlit is ready
     threading.Thread(

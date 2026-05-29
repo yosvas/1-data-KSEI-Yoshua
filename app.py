@@ -428,8 +428,9 @@ def donut_chart(data, label_col, value_col, colors=None, height=360):
                 sort=False,
                 direction="clockwise",
                 textinfo="percent",
-                textposition="outside",
+                textposition="inside",
                 texttemplate="%{percent:.1%}",
+                insidetextorientation="radial",
                 hovertemplate="%{label}<br>%{value:,}<br>%{percent:.1%}<extra></extra>",
                 marker=dict(colors=colors, line=dict(color="#f6f2ec", width=2)),
             )
@@ -438,7 +439,7 @@ def donut_chart(data, label_col, value_col, colors=None, height=360):
     fig.update_traces(automargin=True)
     fig.update_layout(
         height=height,
-        margin=dict(l=30, r=90, t=10, b=30),
+        margin=dict(l=20, r=90, t=10, b=30),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(
@@ -451,6 +452,166 @@ def donut_chart(data, label_col, value_col, colors=None, height=360):
         ),
         uniformtext_minsize=10,
         uniformtext_mode="hide",
+    )
+    return fig
+
+
+def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, max_related=18, height=460):
+    selected = (
+        df[df["share_code"] == stock_code].copy()
+        if selected_rows is None
+        else selected_rows.copy()
+    )
+    selected = selected.sort_values("percentage", ascending=False).head(max_holders)
+    if selected.empty:
+        return None
+
+    holders = selected["investor_name"].dropna().drop_duplicates().tolist()
+    related = df[
+        df["investor_name"].isin(holders) &
+        (df["share_code"] != stock_code)
+    ].copy()
+
+    if related.empty:
+        related_codes = []
+    else:
+        related_rank = (
+            related.groupby(["share_code", "issuer_name"], dropna=False)
+            .agg(
+                n_holders=("investor_name", "nunique"),
+                total_pct=("percentage", "sum"),
+                max_pct=("percentage", "max"),
+            )
+            .reset_index()
+            .sort_values(["n_holders", "total_pct", "share_code"], ascending=[False, False, True])
+            .head(max_related)
+        )
+        related_codes = related_rank["share_code"].tolist()
+        related = related[related["share_code"].isin(related_codes)]
+
+    fig = go.Figure()
+    node_x = {"stock": 0.0}
+    node_y = {"stock": 0.0}
+
+    def _ys(n, span=2.6):
+        if n <= 1:
+            return [0.0]
+        step = span / (n - 1)
+        return [span / 2 - i * step for i in range(n)]
+
+    holder_y = _ys(len(holders), span=max(2.4, min(5.2, len(holders) * 0.42)))
+    related_y = _ys(len(related_codes), span=max(2.4, min(5.6, max(1, len(related_codes)) * 0.34)))
+
+    for i, holder in enumerate(holders):
+        node_x[f"h:{holder}"] = 1.2
+        node_y[f"h:{holder}"] = holder_y[i]
+    for i, code in enumerate(related_codes):
+        node_x[f"s:{code}"] = 2.45
+        node_y[f"s:{code}"] = related_y[i]
+
+    for _, row in selected.iterrows():
+        holder = row["investor_name"]
+        hid = f"h:{holder}"
+        width = max(1.4, min(7, 1.2 + float(row["percentage"]) / 8))
+        fig.add_trace(go.Scatter(
+            x=[node_x["stock"], node_x[hid]],
+            y=[node_y["stock"], node_y[hid]],
+            mode="lines",
+            line=dict(color="rgba(47,127,69,0.34)", width=width),
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+
+    for _, row in related.iterrows():
+        holder = row["investor_name"]
+        code = row["share_code"]
+        hid = f"h:{holder}"
+        sid = f"s:{code}"
+        if hid not in node_x or sid not in node_x:
+            continue
+        fig.add_trace(go.Scatter(
+            x=[node_x[hid], node_x[sid]],
+            y=[node_y[hid], node_y[sid]],
+            mode="lines",
+            line=dict(color="rgba(117,106,96,0.20)", width=1),
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+
+    issuer = (
+        df.loc[df["share_code"] == stock_code, "issuer_name"].iloc[0]
+        if not df.loc[df["share_code"] == stock_code].empty
+        else ""
+    )
+    fig.add_trace(go.Scatter(
+        x=[0],
+        y=[0],
+        mode="markers+text",
+        text=[stock_code],
+        textposition="bottom center",
+        marker=dict(size=34, color="#2f7f45", line=dict(width=2, color="#14532d")),
+        hovertemplate=f"<b>{stock_code}</b><br>{issuer}<extra></extra>",
+        name="Saham utama",
+    ))
+
+    holder_hover = []
+    holder_size = []
+    holder_color = []
+    holder_text = []
+    for holder in holders:
+        row = selected[selected["investor_name"] == holder].iloc[0]
+        other_count = related[related["investor_name"] == holder]["share_code"].nunique()
+        holder_hover.append(
+            f"<b>{holder}</b><br>{stock_code}: {row['percentage']:.2f}%"
+            f"<br>{other_count} saham terkait<extra></extra>"
+        )
+        holder_size.append(max(14, min(26, 13 + float(row["percentage"]) / 2)))
+        holder_color.append("#d84a3a" if row["investor_classification"] == "Individual" else "#45a88d")
+        holder_text.append(holder if len(holder) <= 24 else holder[:23] + "...")
+
+    fig.add_trace(go.Scatter(
+        x=[node_x[f"h:{holder}"] for holder in holders],
+        y=[node_y[f"h:{holder}"] for holder in holders],
+        mode="markers+text",
+        text=holder_text,
+        textposition="middle right",
+        marker=dict(size=holder_size, color=holder_color, line=dict(width=1, color="#fffdf9")),
+        hovertemplate=holder_hover,
+        name="Pemegang saham",
+    ))
+
+    related_hover = []
+    for code in related_codes:
+        rows = related[related["share_code"] == code]
+        issuer_name = rows["issuer_name"].iloc[0] if not rows.empty else ""
+        related_hover.append(
+            f"<b>{code}</b><br>{issuer_name}<br>"
+            f"{rows['investor_name'].nunique()} pemegang terkait<extra></extra>"
+        )
+
+    if related_codes:
+        fig.add_trace(go.Scatter(
+            x=[node_x[f"s:{code}"] for code in related_codes],
+            y=[node_y[f"s:{code}"] for code in related_codes],
+            mode="markers+text",
+            text=related_codes,
+            textposition="middle right",
+            marker=dict(size=16, color="#6aa7de", line=dict(width=1, color="#fffdf9")),
+            hovertemplate=related_hover,
+            name="Saham terkait",
+        ))
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=10, r=20, t=20, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(visible=False, range=[-0.35, 3.35]),
+        yaxis=dict(visible=False),
+        dragmode="pan",
+        hovermode="closest",
+        font=dict(size=11, color="#51483f"),
     )
     return fig
 
@@ -912,6 +1073,24 @@ with tab_saham:
                 disp["Saham"] = disp["Saham"].apply(lambda x: f"{int(x):,}")
                 disp["%"]     = disp["%"].apply(lambda x: f"{x:.2f}%")
                 st.dataframe(disp, width="stretch", hide_index=True)
+
+                st.markdown('<p class="sec-hdr">Jaringan Koneksi</p>', unsafe_allow_html=True)
+                nc1, nc2, _ = st.columns([1, 1, 4])
+                max_holders = nc1.slider("Max holders", 3, 20, 10, 1, key=f"net_h_{detail_code}")
+                max_related = nc2.slider("Max saham terkait", 5, 40, 18, 1, key=f"net_s_{detail_code}")
+                net_fig = ownership_network_chart(
+                    df,
+                    detail_code,
+                    selected_rows=sub,
+                    max_holders=max_holders,
+                    max_related=max_related,
+                )
+                if net_fig is not None:
+                    st.plotly_chart(
+                        net_fig,
+                        width="stretch",
+                        config={"displayModeBar": True, "scrollZoom": True},
+                    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

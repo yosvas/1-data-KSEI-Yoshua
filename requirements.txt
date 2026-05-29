@@ -1,0 +1,12 @@
+streamlit==1.56.0
+pandas==3.0.2
+plotly==6.7.0
+altair==6.0.0
+pdfplumber==0.11.9
+pdfminer.six==20251230
+pypdfium2==5.7.0
+openpyxl==3.1.5
+pyarrow==23.0.1
+numpy==2.4.4
+pyinstaller==6.20.0
+pyinstaller-hooks-contrib==2026.5

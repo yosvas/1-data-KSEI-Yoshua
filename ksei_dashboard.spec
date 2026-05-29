@@ -20,6 +20,7 @@ app_datas = [
     ("parser.py",   "."),
     ("db.py",       "."),
     ("analysis.py", "."),
+    (".streamlit/config.toml", ".streamlit"),
 ]
 
 all_datas    = (st_datas + alt_datas + pm_datas + pp_datas +
