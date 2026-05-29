@@ -3,8 +3,10 @@ KSEI Ownership Dashboard
 ========================
 Run:  streamlit run app.py   (from the 1persen_data folder)
 """
+import json
 import sys
 import zipfile
+from math import atan2, cos, pi, sin
 from io import BytesIO
 from pathlib import Path
 
@@ -492,32 +494,75 @@ def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, 
     fig = go.Figure()
     node_x = {"stock": 0.0}
     node_y = {"stock": 0.0}
+    palette = [
+        "#2f7f45", "#2b7de1", "#d97706", "#dc2626", "#7c3aed",
+        "#0891b2", "#65a30d", "#be185d", "#475569", "#ea580c",
+    ]
+    holder_color_map = {
+        holder: palette[i % len(palette)]
+        for i, holder in enumerate(holders)
+    }
 
-    def _ys(n, span=2.6):
-        if n <= 1:
-            return [0.0]
-        step = span / (n - 1)
-        return [span / 2 - i * step for i in range(n)]
+    def _hex_to_rgba(color: str, alpha: float) -> str:
+        color = color.lstrip("#")
+        r, g, b = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+        return f"rgba({r},{g},{b},{alpha})"
 
-    holder_y = _ys(len(holders), span=max(2.4, min(5.2, len(holders) * 0.42)))
-    related_y = _ys(len(related_codes), span=max(2.4, min(5.6, max(1, len(related_codes)) * 0.34)))
+    def _label_position(angle: float) -> str:
+        x = cos(angle)
+        y = sin(angle)
+        if abs(x) > abs(y):
+            return "middle right" if x >= 0 else "middle left"
+        return "bottom center" if y >= 0 else "top center"
 
-    for i, holder in enumerate(holders):
-        node_x[f"h:{holder}"] = 1.2
-        node_y[f"h:{holder}"] = holder_y[i]
-    for i, code in enumerate(related_codes):
-        node_x[f"s:{code}"] = 2.45
-        node_y[f"s:{code}"] = related_y[i]
+    holder_angles = {}
+    if len(holders) == 1:
+        holder_angles[holders[0]] = -pi / 2
+    else:
+        for i, holder in enumerate(holders):
+            holder_angles[holder] = -pi / 2 + (2 * pi * i / len(holders))
+
+    holder_radius = 1.12
+    for holder, angle in holder_angles.items():
+        node_x[f"h:{holder}"] = holder_radius * cos(angle)
+        node_y[f"h:{holder}"] = holder_radius * sin(angle)
+
+    related_angles = {}
+    for code in related_codes:
+        connected = related.loc[related["share_code"] == code, "investor_name"].drop_duplicates()
+        angles = [holder_angles[h] for h in connected if h in holder_angles]
+        if not angles:
+            related_angles[code] = -pi / 2
+            continue
+        x = sum(cos(a) for a in angles) / len(angles)
+        y = sum(sin(a) for a in angles) / len(angles)
+        related_angles[code] = atan2(y, x)
+
+    related_codes = sorted(related_codes, key=lambda code: related_angles.get(code, 0))
+    angle_counts = {}
+    related_radius = 2.15
+    for code in related_codes:
+        base_angle = related_angles.get(code, -pi / 2)
+        bucket = round(base_angle, 1)
+        offset_i = angle_counts.get(bucket, 0)
+        angle_counts[bucket] = offset_i + 1
+        offset = (offset_i - 1) * 0.12 if offset_i else 0
+        radius = related_radius + (0.18 if offset_i % 2 else 0)
+        angle = base_angle + offset
+        related_angles[code] = angle
+        node_x[f"s:{code}"] = radius * cos(angle)
+        node_y[f"s:{code}"] = radius * sin(angle)
 
     for _, row in selected.iterrows():
         holder = row["investor_name"]
         hid = f"h:{holder}"
         width = max(1.4, min(7, 1.2 + float(row["percentage"]) / 8))
+        color = holder_color_map.get(holder, "#2f7f45")
         fig.add_trace(go.Scatter(
             x=[node_x["stock"], node_x[hid]],
             y=[node_y["stock"], node_y[hid]],
             mode="lines",
-            line=dict(color="rgba(47,127,69,0.34)", width=width),
+            line=dict(color=_hex_to_rgba(color, 0.42), width=width),
             hoverinfo="skip",
             showlegend=False,
         ))
@@ -529,11 +574,12 @@ def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, 
         sid = f"s:{code}"
         if hid not in node_x or sid not in node_x:
             continue
+        color = holder_color_map.get(holder, "#756a60")
         fig.add_trace(go.Scatter(
             x=[node_x[hid], node_x[sid]],
             y=[node_y[hid], node_y[sid]],
             mode="lines",
-            line=dict(color="rgba(117,106,96,0.20)", width=1),
+            line=dict(color=_hex_to_rgba(color, 0.24), width=1.2),
             hoverinfo="skip",
             showlegend=False,
         ))
@@ -566,7 +612,7 @@ def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, 
             f"<br>{other_count} saham terkait<extra></extra>"
         )
         holder_size.append(max(14, min(26, 13 + float(row["percentage"]) / 2)))
-        holder_color.append("#d84a3a" if row["investor_classification"] == "Individual" else "#45a88d")
+        holder_color.append(holder_color_map[holder])
         holder_text.append(holder if len(holder) <= 24 else holder[:23] + "...")
 
     fig.add_trace(go.Scatter(
@@ -574,7 +620,7 @@ def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, 
         y=[node_y[f"h:{holder}"] for holder in holders],
         mode="markers+text",
         text=holder_text,
-        textposition="middle right",
+        textposition=[_label_position(holder_angles[holder]) for holder in holders],
         marker=dict(size=holder_size, color=holder_color, line=dict(width=1, color="#fffdf9")),
         hovertemplate=holder_hover,
         name="Pemegang saham",
@@ -595,7 +641,7 @@ def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, 
             y=[node_y[f"s:{code}"] for code in related_codes],
             mode="markers+text",
             text=related_codes,
-            textposition="middle right",
+            textposition=[_label_position(related_angles[code]) for code in related_codes],
             marker=dict(size=16, color="#6aa7de", line=dict(width=1, color="#fffdf9")),
             hovertemplate=related_hover,
             name="Saham terkait",
@@ -607,13 +653,303 @@ def ownership_network_chart(df, stock_code, selected_rows=None, max_holders=10, 
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(visible=False, range=[-0.35, 3.35]),
-        yaxis=dict(visible=False),
+        xaxis=dict(visible=False, range=[-2.75, 2.75]),
+        yaxis=dict(visible=False, range=[-2.75, 2.75], scaleanchor="x", scaleratio=1),
         dragmode="pan",
         hovermode="closest",
         font=dict(size=11, color="#51483f"),
     )
     return fig
+
+
+def ownership_network_html(df, stock_code, selected_rows=None, max_holders=10, max_related=18, height=620):
+    selected = (
+        df[df["share_code"] == stock_code].copy()
+        if selected_rows is None
+        else selected_rows.copy()
+    )
+    selected = selected.sort_values("percentage", ascending=False).head(max_holders)
+    if selected.empty:
+        return ""
+
+    holders = selected["investor_name"].dropna().drop_duplicates().tolist()
+    related = df[
+        df["investor_name"].isin(holders) &
+        (df["share_code"] != stock_code)
+    ].copy()
+
+    if related.empty:
+        related_codes = []
+    else:
+        related_rank = (
+            related.groupby(["share_code", "issuer_name"], dropna=False)
+            .agg(
+                n_holders=("investor_name", "nunique"),
+                total_pct=("percentage", "sum"),
+            )
+            .reset_index()
+            .sort_values(["n_holders", "total_pct", "share_code"], ascending=[False, False, True])
+            .head(max_related)
+        )
+        related_codes = related_rank["share_code"].tolist()
+        related = related[related["share_code"].isin(related_codes)]
+
+    palette = [
+        "#2f7f45", "#2b7de1", "#d97706", "#dc2626", "#7c3aed",
+        "#0891b2", "#65a30d", "#be185d", "#475569", "#ea580c",
+    ]
+    holder_color_map = {
+        holder: palette[i % len(palette)]
+        for i, holder in enumerate(holders)
+    }
+
+    def _hex_to_rgba(color: str, alpha: float) -> str:
+        color = color.lstrip("#")
+        r, g, b = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+        return f"rgba({r},{g},{b},{alpha})"
+
+    def _short(text: str, limit: int = 24) -> str:
+        text = str(text)
+        return text if len(text) <= limit else text[:limit - 1] + "..."
+
+    holder_angles = {}
+    if len(holders) == 1:
+        holder_angles[holders[0]] = -pi / 2
+    else:
+        for i, holder in enumerate(holders):
+            holder_angles[holder] = -pi / 2 + (2 * pi * i / len(holders))
+
+    related_angles = {}
+    for code in related_codes:
+        connected = related.loc[related["share_code"] == code, "investor_name"].drop_duplicates()
+        angles = [holder_angles[h] for h in connected if h in holder_angles]
+        if not angles:
+            related_angles[code] = -pi / 2
+            continue
+        x = sum(cos(a) for a in angles) / len(angles)
+        y = sum(sin(a) for a in angles) / len(angles)
+        related_angles[code] = atan2(y, x)
+
+    related_codes = sorted(related_codes, key=lambda code: related_angles.get(code, 0))
+    issuer = (
+        df.loc[df["share_code"] == stock_code, "issuer_name"].iloc[0]
+        if not df.loc[df["share_code"] == stock_code].empty
+        else ""
+    )
+
+    width = 1000
+    center_x = width / 2
+    center_y = height / 2
+    holder_radius = min(190, height * 0.30)
+    related_radius = min(290, height * 0.44)
+
+    nodes = [{
+        "id": "stock",
+        "label": stock_code,
+        "type": "stock",
+        "x": center_x,
+        "y": center_y,
+        "r": 22,
+        "color": "#2f7f45",
+        "title": f"{stock_code}\\n{issuer}",
+    }]
+    edges = []
+
+    holder_ids = {}
+    for holder in holders:
+        row = selected[selected["investor_name"] == holder].iloc[0]
+        angle = holder_angles[holder]
+        node_id = f"h{len(holder_ids)}"
+        holder_ids[holder] = node_id
+        color = holder_color_map[holder]
+        nodes.append({
+            "id": node_id,
+            "label": _short(holder),
+            "type": "holder",
+            "x": center_x + holder_radius * cos(angle),
+            "y": center_y + holder_radius * sin(angle),
+            "r": max(13, min(24, 12 + float(row["percentage"]) / 2)),
+            "color": color,
+            "title": f"{holder}\\n{stock_code}: {row['percentage']:.2f}%",
+        })
+        edges.append({
+            "source": "stock",
+            "target": node_id,
+            "color": _hex_to_rgba(color, 0.42),
+            "width": max(1.4, min(7, 1.2 + float(row["percentage"]) / 8)),
+        })
+
+    angle_counts = {}
+    stock_ids = {}
+    for code in related_codes:
+        base_angle = related_angles.get(code, -pi / 2)
+        bucket = round(base_angle, 1)
+        offset_i = angle_counts.get(bucket, 0)
+        angle_counts[bucket] = offset_i + 1
+        angle = base_angle + ((offset_i - 1) * 0.16 if offset_i else 0)
+        radius = related_radius + (18 if offset_i % 2 else 0)
+        rows = related[related["share_code"] == code]
+        issuer_name = rows["issuer_name"].iloc[0] if not rows.empty else ""
+        node_id = f"s{len(stock_ids)}"
+        stock_ids[code] = node_id
+        nodes.append({
+            "id": node_id,
+            "label": code,
+            "type": "related",
+            "x": center_x + radius * cos(angle),
+            "y": center_y + radius * sin(angle),
+            "r": 13,
+            "color": "#6aa7de",
+            "title": f"{code}\\n{issuer_name}\\n{rows['investor_name'].nunique()} pemegang terkait",
+        })
+
+    for _, row in related.iterrows():
+        holder = row["investor_name"]
+        code = row["share_code"]
+        if holder not in holder_ids or code not in stock_ids:
+            continue
+        color = holder_color_map.get(holder, "#756a60")
+        edges.append({
+            "source": holder_ids[holder],
+            "target": stock_ids[code],
+            "color": _hex_to_rgba(color, 0.28),
+            "width": 1.2,
+        })
+
+    payload = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)
+    return f"""
+<div id="network-wrap">
+  <svg id="network-svg" viewBox="0 0 {width} {height}" role="img" aria-label="Jaringan koneksi saham">
+    <g id="edges"></g>
+    <g id="nodes"></g>
+  </svg>
+</div>
+<style>
+  #network-wrap {{
+    background: #fffdf9;
+    border: 1px solid #e8e0d8;
+    border-radius: 8px;
+    height: {height}px;
+    overflow: hidden;
+    touch-action: none;
+  }}
+  #network-svg {{
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    user-select: none;
+  }}
+  #network-svg.dragging {{ cursor: grabbing; }}
+  .edge {{ fill: none; stroke-linecap: round; }}
+  .node circle {{ stroke: #fffdf9; stroke-width: 2; filter: drop-shadow(0 1px 2px rgba(44,39,34,.22)); }}
+  .node text {{ fill: #51483f; font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; paint-order: stroke; stroke: #fffdf9; stroke-width: 4px; }}
+  .node.stock text {{ font-size: 15px; fill: #14532d; }}
+  .node.related text {{ font-size: 11px; fill: #315f91; }}
+</style>
+<script>
+(() => {{
+  const data = {payload};
+  const svg = document.getElementById("network-svg");
+  const edgesLayer = document.getElementById("edges");
+  const nodesLayer = document.getElementById("nodes");
+  const nodesById = new Map(data.nodes.map(n => [n.id, n]));
+  let active = null;
+
+  function svgPoint(evt) {{
+    const point = svg.createSVGPoint();
+    const source = evt.touches ? evt.touches[0] : evt;
+    point.x = source.clientX;
+    point.y = source.clientY;
+    return point.matrixTransform(svg.getScreenCTM().inverse());
+  }}
+
+  function labelAnchor(node) {{
+    const dx = node.x - {center_x};
+    const dy = node.y - {center_y};
+    if (Math.abs(dx) > Math.abs(dy)) {{
+      return dx >= 0 ? ["start", node.r + 8, 4] : ["end", -node.r - 8, 4];
+    }}
+    return dy >= 0 ? ["middle", 0, node.r + 18] : ["middle", 0, -node.r - 10];
+  }}
+
+  function render() {{
+    edgesLayer.innerHTML = "";
+    for (const edge of data.edges) {{
+      const a = nodesById.get(edge.source);
+      const b = nodesById.get(edge.target);
+      if (!a || !b) continue;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("class", "edge");
+      line.setAttribute("x1", a.x);
+      line.setAttribute("y1", a.y);
+      line.setAttribute("x2", b.x);
+      line.setAttribute("y2", b.y);
+      line.setAttribute("stroke", edge.color);
+      line.setAttribute("stroke-width", edge.width);
+      edgesLayer.appendChild(line);
+    }}
+
+    nodesLayer.innerHTML = "";
+    for (const node of data.nodes) {{
+      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      group.setAttribute("class", `node ${{node.type}}`);
+      group.setAttribute("data-id", node.id);
+      group.setAttribute("transform", `translate(${{node.x}},${{node.y}})`);
+
+      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      title.textContent = node.title;
+      group.appendChild(title);
+
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("r", node.r);
+      circle.setAttribute("fill", node.color);
+      group.appendChild(circle);
+
+      const [anchor, tx, ty] = labelAnchor(node);
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("x", tx);
+      text.setAttribute("y", ty);
+      text.setAttribute("text-anchor", anchor);
+      text.textContent = node.label;
+      group.appendChild(text);
+
+      group.addEventListener("mousedown", startDrag);
+      group.addEventListener("touchstart", startDrag, {{ passive: false }});
+      nodesLayer.appendChild(group);
+    }}
+  }}
+
+  function startDrag(evt) {{
+    evt.preventDefault();
+    const id = evt.currentTarget.getAttribute("data-id");
+    const node = nodesById.get(id);
+    const point = svgPoint(evt);
+    active = {{ node, dx: point.x - node.x, dy: point.y - node.y }};
+    svg.classList.add("dragging");
+  }}
+
+  function drag(evt) {{
+    if (!active) return;
+    evt.preventDefault();
+    const point = svgPoint(evt);
+    active.node.x = Math.max(25, Math.min({width - 25}, point.x - active.dx));
+    active.node.y = Math.max(25, Math.min({height - 25}, point.y - active.dy));
+    render();
+  }}
+
+  function endDrag() {{
+    active = null;
+    svg.classList.remove("dragging");
+  }}
+
+  window.addEventListener("mousemove", drag);
+  window.addEventListener("mouseup", endDrag);
+  window.addEventListener("touchmove", drag, {{ passive: false }});
+  window.addEventListener("touchend", endDrag);
+  render();
+}})();
+</script>
+"""
 
 
 def _lf_text(value):
@@ -1075,22 +1411,39 @@ with tab_saham:
                 st.dataframe(disp, width="stretch", hide_index=True)
 
                 st.markdown('<p class="sec-hdr">Jaringan Koneksi</p>', unsafe_allow_html=True)
-                nc1, nc2, _ = st.columns([1, 1, 4])
+                nc1, nc2, nc3, _ = st.columns([1, 1, 1.4, 3.6])
                 max_holders = nc1.slider("Max holders", 3, 20, 10, 1, key=f"net_h_{detail_code}")
                 max_related = nc2.slider("Max saham terkait", 5, 40, 18, 1, key=f"net_s_{detail_code}")
-                net_fig = ownership_network_chart(
-                    df,
-                    detail_code,
-                    selected_rows=sub,
-                    max_holders=max_holders,
-                    max_related=max_related,
+                net_mode = nc3.selectbox(
+                    "Mode diagram",
+                    ["Drag nodes", "Pan/zoom"],
+                    key=f"net_mode_{detail_code}",
                 )
-                if net_fig is not None:
-                    st.plotly_chart(
-                        net_fig,
-                        width="stretch",
-                        config={"displayModeBar": True, "scrollZoom": True},
+                if net_mode == "Drag nodes":
+                    st.iframe(
+                        ownership_network_html(
+                            df,
+                            detail_code,
+                            selected_rows=sub,
+                            max_holders=max_holders,
+                            max_related=max_related,
+                        ),
+                        height=635,
                     )
+                else:
+                    net_fig = ownership_network_chart(
+                        df,
+                        detail_code,
+                        selected_rows=sub,
+                        max_holders=max_holders,
+                        max_related=max_related,
+                    )
+                    if net_fig is not None:
+                        st.plotly_chart(
+                            net_fig,
+                            width="stretch",
+                            config={"displayModeBar": True, "scrollZoom": True},
+                        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
